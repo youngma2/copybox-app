@@ -1,5 +1,7 @@
 import { won } from '../lib/format';
-import { BINDING_NOTE, BINDING_OPTIONS, PAGE_UNIT_PRICE } from '../lib/pricing';
+import { BINDING_NOTE, BINDING_OPTIONS, PAGE_UNIT_PRICE } from '../config/pricing';
+import { DELIVERY_SPEED_OPTIONS, ECO_DISCOUNT_RATE, SHIPPING_DETAIL, SHIPPING_EXTRA_NOTE, SHIPPING_NOTE, SHIPPING_TOTAL } from '../config/delivery';
+import { CARD_OPEN_BADGE, CARD_PAPER_OPTIONS, CARD_SPEC } from '../config/business-card';
 
 export default function PriceTable() {
   return (
@@ -80,6 +82,74 @@ export default function PriceTable() {
             ))}
           </ul>
           <p className="mt-3 rounded-lg bg-ink-50 px-3 py-2.5 text-[10px] leading-relaxed text-ink-600">{BINDING_NOTE}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        {/* 택배비·포장비 */}
+        <div className="card min-w-0 p-4 sm:p-5" data-testid="shipping-table">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-[14px] font-bold text-ink-900">택배비 · 포장비</h3>
+            <span className="rounded-full bg-ink-50 px-2 py-0.5 text-[10px] font-bold text-ink-500">방문 수령 0원</span>
+          </div>
+          <ul className="mt-3 space-y-2 text-[12px]">
+            {SHIPPING_DETAIL.map((row) => (
+              <li key={row.label} className="flex items-center justify-between gap-2">
+                <span className="min-w-0 text-ink-600">
+                  {row.label}
+                  <span className="block text-[10px] text-ink-400">{row.note}</span>
+                </span>
+                <span className="num shrink-0 font-semibold text-ink-900">{won(row.value)}</span>
+              </li>
+            ))}
+            <li className="flex items-center justify-between gap-2 border-t border-dashed border-ink-200 pt-2">
+              <span className="font-bold text-ink-800">합계</span>
+              <span data-testid="shipping-total" className="num text-[15px] font-extrabold text-ink-900">{won(SHIPPING_TOTAL)}</span>
+            </li>
+          </ul>
+          <p className="mt-2.5 break-words text-[10px] leading-relaxed text-ink-400">{SHIPPING_EXTRA_NOTE} 퀵은 착불입니다.</p>
+          <p className="mt-1 break-words text-[10px] leading-relaxed text-ink-400">{SHIPPING_NOTE}</p>
+        </div>
+
+        {/* 명함 */}
+        <div className="card min-w-0 p-4 sm:p-5" data-testid="card-price-table">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-[14px] font-bold text-ink-900">명함 · {CARD_SPEC.widthMm}×{CARD_SPEC.heightMm}mm</h3>
+            <span className="rounded-full bg-sun/70 px-2 py-0.5 text-[10px] font-bold text-ink-900">{CARD_OPEN_BADGE}</span>
+          </div>
+          <ul className="mt-3 divide-y divide-ink-100">
+            {CARD_PAPER_OPTIONS.map((option) => (
+              <li key={option.id} className="flex items-center justify-between gap-2 py-2">
+                <span className="min-w-0 text-[12px] font-semibold text-ink-800">{option.label.replace(' 명함', '')}</span>
+                <span className="num shrink-0 text-[12px] font-bold text-ink-900">{won(option.price)}/200매</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2.5 text-[10px] leading-relaxed text-ink-400">
+            임시 단가 · 문구만 남겨 주셔도 시안 제작을 도와드립니다.
+          </p>
+        </div>
+
+        {/* 여유특가 */}
+        <div className="card min-w-0 border-mint/30 bg-mint/5 p-4 sm:p-5" data-testid="eco-price-table">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-[14px] font-bold text-mint">🌿 여유 제작 특가</h3>
+            <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-mint">-{ECO_DISCOUNT_RATE * 100}%</span>
+          </div>
+          <p className="mt-3 text-[12px] leading-relaxed text-ink-700">
+            인쇄비에서 <strong className="font-bold text-mint">{ECO_DISCOUNT_RATE * 100}% 자동 할인</strong>. 제본비·택배비는 그대로입니다.
+          </p>
+          <ul className="mt-2 space-y-1.5 text-[11px] text-ink-600">
+            {DELIVERY_SPEED_OPTIONS.map((option) => (
+              <li key={option.id} className="flex items-start gap-1.5">
+                <span className="shrink-0">{option.emoji}</span>
+                <span className="min-w-0">{option.label}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[10px] leading-relaxed text-ink-500">
+            배송 도착일이 아닌 영업일 4일 이내 출고(택배 접수 완료 · 방문수령 준비 완료) 기준, 작업 일정에 따라 조기 출고 가능.
+          </p>
         </div>
       </div>
 

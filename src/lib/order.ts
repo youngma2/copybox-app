@@ -1,26 +1,23 @@
 import { formatDateTime, todayCode } from './format';
 import type { Quote } from './pricing';
+import type { PaymentMethod } from '../config/status';
 
-export type PickupMethod = 'store' | 'delivery';
-
-export const PICKUP_LABEL: Record<PickupMethod, string> = {
-  store: '매장 방문 수령',
-  delivery: '택배 · 퀵',
-};
+export { PICKUP_LABEL } from '../config/delivery';
+export type { PickupMethod } from '../config/delivery';
 
 export interface OrderFormValues {
   name: string;
   phone: string;
-  pickup: PickupMethod;
   address: string;
   notes: string;
   agree: boolean;
+  paymentMethod: PaymentMethod;
 }
 
 export interface OrderDraft {
   name: string;
   phone: string;
-  pickup: PickupMethod;
+  pickup: 'store' | 'delivery';
   address: string;
   notes: string;
   quote: Quote;

@@ -1,14 +1,12 @@
+import { STORE } from '../config/store';
+import { SHIPPING_NOTE } from '../config/delivery';
 import { IconChat, IconClock, IconPhone, IconPin, IconStore, IconTruck } from './Icons';
 
 interface StoreInfoProps {
   onSampleAction: (message: string) => void;
 }
 
-const HOURS = [
-  { day: '평일', time: '09:00 – 19:00' },
-  { day: '토요일', time: '10:00 – 17:00' },
-  { day: '일·공휴일', time: '휴무' },
-];
+const HOURS = STORE.hours;
 
 export default function StoreInfo({ onSampleAction }: StoreInfoProps) {
   return (
@@ -36,7 +34,7 @@ export default function StoreInfo({ onSampleAction }: StoreInfoProps) {
                 <IconStore className="h-5 w-5" />
               </span>
               <div>
-                <h3 className="text-[17px] font-extrabold tracking-tight text-ink-900">카피박스 일산점</h3>
+                <h3 className="text-[17px] font-extrabold tracking-tight text-ink-900">{STORE.name}</h3>
                 <p className="mt-1 text-[12px] leading-relaxed text-ink-600">
                   복사 · 출력 · 제본 · 스캔 · 명함 · 포스터
                 </p>
@@ -49,8 +47,8 @@ export default function StoreInfo({ onSampleAction }: StoreInfoProps) {
                   <IconPin className="h-[18px] w-[18px]" />
                 </dt>
                 <dd className="text-[13px] leading-relaxed text-ink-800">
-                  경기도 고양시 일산동구 중앙로 1234, 1층
-                  <span className="mt-0.5 block text-[11px] text-ink-400">풍동 · 샘플 주소</span>
+                  {STORE.address}
+                  <span className="mt-0.5 block text-[11px] text-ink-400">{STORE.addressNote}</span>
                 </dd>
               </div>
 
@@ -78,8 +76,8 @@ export default function StoreInfo({ onSampleAction }: StoreInfoProps) {
                   <IconPhone className="h-[18px] w-[18px]" />
                 </dt>
                 <dd className="text-[13px] text-ink-800">
-                  <a href="tel:031-000-0000" className="num font-semibold underline decoration-ink-200 underline-offset-4 hover:decoration-brand-500">
-                    031-000-0000
+                  <a href={STORE.phoneHref} className="num font-semibold underline decoration-ink-200 underline-offset-4 hover:decoration-brand-500">
+                    {STORE.phone}
                   </a>
                   <span className="mt-0.5 block text-[11px] text-ink-400">샘플 번호 · 영업시간 내 연결</span>
                 </dd>
@@ -90,7 +88,7 @@ export default function StoreInfo({ onSampleAction }: StoreInfoProps) {
                   <IconChat className="h-[18px] w-[18px]" />
                 </dt>
                 <dd className="text-[13px] text-ink-800">
-                  카카오톡 채널 <span className="font-semibold">@카피박스</span>
+                  카카오톡 채널 <span className="font-semibold">{STORE.kakaoChannel}</span>
                   <span className="mt-0.5 block text-[11px] text-ink-400">파일 전송 · 견적 문의</span>
                 </dd>
               </div>
@@ -106,7 +104,7 @@ export default function StoreInfo({ onSampleAction }: StoreInfoProps) {
             </dl>
 
             <div className="mt-5 flex flex-wrap gap-2">
-              <a href="tel:031-000-0000" className="btn-primary !px-4 !py-2.5 !text-[13px]">
+              <a href={STORE.phoneHref} className="btn-primary !px-4 !py-2.5 !text-[13px]">
                 <IconPhone className="h-4 w-4" />
                 전화하기
               </a>
@@ -144,18 +142,18 @@ export default function StoreInfo({ onSampleAction }: StoreInfoProps) {
             <div className="grid gap-2 border-t border-ink-100 p-4 sm:grid-cols-2">
               <div className="flex items-start gap-2 rounded-lg bg-ink-50/70 p-3">
                 <IconTruck className="mt-0.5 h-4 w-4 shrink-0 text-ink-400" />
-                <p className="text-[11px] leading-relaxed text-ink-600">
-                  <strong className="font-semibold text-ink-800">택배·퀵 접수</strong>
+                <p className="break-words text-[11px] leading-relaxed text-ink-600">
+                  <strong className="font-semibold text-ink-800">택배비 · 포장비</strong>
                   <br />
-                  당일 오후 3시 이전 접수분 발송
+                  {SHIPPING_NOTE}
                 </p>
               </div>
               <div className="flex items-start gap-2 rounded-lg bg-ink-50/70 p-3">
                 <IconClock className="mt-0.5 h-4 w-4 shrink-0 text-ink-400" />
                 <p className="text-[11px] leading-relaxed text-ink-600">
-                  <strong className="font-semibold text-ink-800">당일 출력</strong>
+                  <strong className="font-semibold text-ink-800">🌿 여유 제작 특가</strong>
                   <br />
-                  오후 6시 이전 접수 시 당일 수령
+                  영업일 4일 이내 출고 · 인쇄비 10% 할인
                 </p>
               </div>
             </div>

@@ -1,12 +1,12 @@
 import { IconArrowRight, IconCheck, IconFile, IconPrinter, IconStore } from './Icons';
 
-const CHIPS = ['A4 흑백 단면 50원', 'PDF 페이지 자동 인식', '내 주문 이력 보관', '비회원도 주문 가능'];
+const CHIPS = ['A4 흑백 단면 50원', 'PDF 페이지 자동 인식', '🌿 여유특가 인쇄비 10% 할인', '명함 200매 15,000원'];
 
 const STEPS = [
   {
     no: '01',
     title: '파일 올리기',
-    body: 'PDF·HWP·DOCX·이미지를 끌어다 놓으면 페이지 수를 자동으로 세어요.',
+    body: 'PDF·HWP·DOCX·이미지를 끌어다 놓으면 페이지 수를 자동으로 세어요. 명함은 문구만 남겨도 됩니다.',
     icon: <IconFile className="h-5 w-5" />,
   },
   {

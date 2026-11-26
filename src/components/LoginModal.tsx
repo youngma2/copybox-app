@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { PROVIDER_LABEL, type LoginProvider } from '../lib/auth';
 import { formatPhone, isValidPhone } from '../lib/order';
-import type { StoreMode } from '../lib/store';
+import type { StoreMode } from '../lib/storage/types';
 import { IconClose, IconGoogle, IconKakao, IconNaver } from './Icons';
 
 interface LoginModalProps {

@@ -1,5 +1,5 @@
 import { PROVIDER_LABEL } from '../lib/auth';
-import type { Customer } from '../lib/store';
+import type { Customer } from '../lib/storage';
 import { IconPhone, IconUser } from './Icons';
 
 export type View = 'shop' | 'history' | 'admin';
@@ -25,7 +25,7 @@ export default function Header({ view, onNavigate, user, onLoginClick, onLogout 
         <div className="container-page flex h-9 items-center justify-between gap-3 overflow-hidden text-[11px] sm:text-xs">
           <p className="min-w-0 truncate text-white/75">
             <span className="mr-1.5 rounded-full bg-sun px-1.5 py-0.5 font-bold text-ink-900">시안</span>
-            A4 흑백 단면 50원 · 양면 40원 · 제본 1,500원부터
+            A4 흑백 단면 50원 · 양면 40원 · 🌿 여유특가 인쇄비 10% 할인
           </p>
           <p className="hidden shrink-0 text-white/50 sm:block">비회원도 주문 가능</p>
         </div>

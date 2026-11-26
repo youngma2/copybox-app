@@ -10,10 +10,16 @@ import SummaryCard from './components/SummaryCard';
 import Uploader, { type UploadedFileMeta } from './components/Uploader';
 import HistorySection from './components/HistorySection';
 import AdminSection from './components/AdminSection';
+import NoticePopup from './components/NoticePopup';
+import { EcoBanner, EcoSection } from './components/EcoPromo';
+import FaqSection from './components/FaqSection';
+import { ReviewSummary } from './components/Reviews';
 import { PROVIDER_LABEL, type LoginProvider } from './lib/auth';
 import { won } from './lib/format';
 import { isValidPhone, type OrderFormValues } from './lib/order';
-import { calculateQuote, type QuoteInput } from './lib/pricing';
+import { DEFAULT_QUOTE_INPUT, calculateQuote, type QuoteInput } from './lib/pricing';
+import { STORE } from './config/store';
+import type { PickupMethod } from './config/delivery';
 import {
   STORE_MODE_LABEL,
   store,
@@ -22,18 +28,10 @@ import {
   type Order,
   type OrderStatus,
   type OrderWithCustomer,
+  type Review,
   type StatusHistory,
-} from './lib/store';
+} from './lib/storage';
 import { IconArrowRight, IconShield } from './components/Icons';
-
-const DEFAULT_OPTIONS: QuoteInput = {
-  size: 'A4',
-  color: 'mono',
-  sides: 'single',
-  pages: 1,
-  copies: 1,
-  binding: 'none',
-};
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '잠시 후 다시 시도해 주세요.';
@@ -42,15 +40,18 @@ function errorMessage(error: unknown): string {
 export default function App() {
   const [view, setView] = useState<View>('shop');
   const [file, setFile] = useState<UploadedFileMeta | null>(null);
-  const [options, setOptions] = useState<QuoteInput>(DEFAULT_OPTIONS);
+  const [options, setOptions] = useState<QuoteInput>(DEFAULT_QUOTE_INPUT);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [receipt, setReceipt] = useState<Order | null>(null);
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [myReviews, setMyReviews] = useState<Review[]>([]);
+  const [publicReviews, setPublicReviews] = useState<Review[]>([]);
   const [allOrders, setAllOrders] = useState<OrderWithCustomer[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [statusHistory, setStatusHistory] = useState<StatusHistory[]>([]);
+  const [adminReviews, setAdminReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const [reorderSource, setReorderSource] = useState<string | null>(null);
@@ -71,8 +72,12 @@ export default function App() {
     async (customerId: string) => {
       setLoading(true);
       try {
-        const rows = await store.listOrdersByCustomer(customerId);
+        const [rows, reviews] = await Promise.all([
+          store.listOrdersByCustomer(customerId),
+          store.listReviewsForCustomer(customerId),
+        ]);
         setOrders(rows);
+        setMyReviews(reviews);
       } catch (error) {
         showToast(errorMessage(error));
       } finally {
@@ -82,17 +87,27 @@ export default function App() {
     [showToast],
   );
 
+  const refreshPublicReviews = useCallback(async () => {
+    try {
+      setPublicReviews(await store.listReviews());
+    } catch {
+      /* 후기는 없어도 화면이 뜨도록 둡니다. */
+    }
+  }, []);
+
   const refreshAdmin = useCallback(async () => {
     setLoading(true);
     try {
-      const [all, customerRows, historyRows] = await Promise.all([
+      const [all, customerRows, historyRows, reviewRows] = await Promise.all([
         store.listAllOrders(),
         store.listCustomers(),
         store.listStatusHistory(),
+        store.listReviews(),
       ]);
       setAllOrders(all);
       setCustomers(customerRows);
       setStatusHistory(historyRows);
+      setAdminReviews(reviewRows);
     } catch (error) {
       showToast(errorMessage(error));
     } finally {
@@ -109,8 +124,13 @@ export default function App() {
         if (session) {
           setCustomer(session);
           const rows = await store.listOrdersByCustomer(session.id);
-          if (alive) setOrders(rows);
+          const reviews = await store.listReviewsForCustomer(session.id);
+          if (alive) {
+            setOrders(rows);
+            setMyReviews(reviews);
+          }
         }
+        await refreshPublicReviews();
       } catch (error) {
         showToast(errorMessage(error));
       }
@@ -118,13 +138,13 @@ export default function App() {
     return () => {
       alive = false;
     };
-  }, [showToast]);
+  }, [showToast, refreshPublicReviews]);
 
   function patchOptions(patch: Partial<QuoteInput>) {
     setOptions((current) => ({ ...current, ...patch }));
   }
 
-  function scrollToShop(sectionId: string) {
+  function scrollTo(sectionId: string) {
     window.setTimeout(() => {
       document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 60);
@@ -135,6 +155,22 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'auto' });
     if (next === 'admin') void refreshAdmin();
     if (next === 'history' && customer) void refreshHistory(customer.id);
+  }
+
+  function handleEcoQuote() {
+    setView('shop');
+    patchOptions({ deliverySpeed: 'eco', product: 'print' });
+    setReceipt(null);
+    showToast('🌿 여유 제작 특가를 선택했어요. 인쇄비 10%가 자동 할인됩니다.');
+    scrollTo('quote');
+  }
+
+  function handleKakao() {
+    if (STORE.kakaoUrl) {
+      window.open(STORE.kakaoUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    showToast('카카오톡 채널 링크 연결 전 자리입니다. 준비되면 이 버튼으로 바로 채널이 열립니다.');
   }
 
   async function handleLogin(provider: LoginProvider) {
@@ -162,6 +198,7 @@ export default function App() {
     await store.signOut();
     setCustomer(null);
     setOrders([]);
+    setMyReviews([]);
     showToast('로그아웃되었습니다. 비회원으로도 견적을 낼 수 있어요.');
   }
 
@@ -176,20 +213,22 @@ export default function App() {
       customerId: owner.id,
       quote,
       customerRequest: values.notes,
-      pickup: values.pickup,
+      pickup: options.pickup,
       address: values.address,
       file: file ? { name: file.name, size: file.size, pages: file.pages } : null,
+      paymentMethod: values.paymentMethod,
     });
     setReceipt(order);
     setReorderSource(null);
     await refreshHistory(owner.id);
-    showToast(`주문이 접수됐어요 (${order.orderNumber}). 내 주문 이력에 저장했습니다.`);
+    await refreshPublicReviews();
+    showToast(`주문이 접수됐어요 (${order.orderNumber}). 입금 확인 후 인쇄를 시작합니다.`);
   }
 
   function handleReset() {
     setReceipt(null);
     setFile(null);
-    setOptions(DEFAULT_OPTIONS);
+    setOptions(DEFAULT_QUOTE_INPUT);
     setReorderSource(null);
     window.setTimeout(() => {
       document.getElementById('quote')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -198,19 +237,25 @@ export default function App() {
 
   function handleReorder(order: Order) {
     setOptions({
-      size: 'A4',
+      product: order.product,
+      size: order.paperSize,
       color: order.colorMode,
       sides: order.sides,
       pages: order.pages,
       copies: order.copies,
       binding: order.binding,
+      cardPaper: order.cardPaper ?? 'coating',
+      cardUnits: order.cardQty ? Math.max(1, Math.round(order.cardQty / 200)) : 1,
+      cardText: order.cardText ?? '',
+      pickup: order.pickup,
+      deliverySpeed: order.deliverySpeed,
     });
     setFile(null);
     setReceipt(null);
     setReorderSource(order.orderNumber);
     setView('shop');
     showToast(`${order.orderNumber} 옵션을 그대로 불러왔어요. 파일만 다시 올려 주세요.`);
-    scrollToShop('quote');
+    scrollTo('quote');
   }
 
   async function handleStatusChange(orderId: string, status: OrderStatus) {
@@ -219,7 +264,7 @@ export default function App() {
       await store.updateOrderStatus(orderId, status);
       await refreshAdmin();
       if (customer) await refreshHistory(customer.id);
-      showToast('주문 상태를 변경했어요.');
+      showToast(`주문 상태를 '${status}'로 바꿨어요.`);
     } catch (error) {
       showToast(errorMessage(error));
     } finally {
@@ -227,10 +272,93 @@ export default function App() {
     }
   }
 
+  async function handleConfirmPayment(orderId: string) {
+    setBusyOrderId(orderId);
+    try {
+      await store.confirmPayment(orderId);
+      await refreshAdmin();
+      if (customer) await refreshHistory(customer.id);
+      showToast('입금 확인 완료로 표시했어요. 확인 시각이 주문 이력에 저장됩니다.');
+    } catch (error) {
+      showToast(errorMessage(error));
+    } finally {
+      setBusyOrderId(null);
+    }
+  }
+
+  async function handleAddPhoto(orderId: string, dataUrl: string) {
+    try {
+      await store.addPickupPhoto(orderId, dataUrl);
+      await refreshAdmin();
+      if (customer) await refreshHistory(customer.id);
+      showToast('보관 사진을 올렸어요. 손님 내 주문 이력에서 바로 보입니다.');
+    } catch (error) {
+      showToast(errorMessage(error));
+      throw error;
+    }
+  }
+
+  async function handleRemovePhoto(orderId: string, photoId: string) {
+    try {
+      await store.removePickupPhoto(orderId, photoId);
+      await refreshAdmin();
+      if (customer) await refreshHistory(customer.id);
+    } catch (error) {
+      showToast(errorMessage(error));
+      throw error;
+    }
+  }
+
+  async function handleSaveReview(order: Order, input: { rating: number; body: string; photoUrl: string | null }) {
+    if (!customer) throw new Error('로그인이 필요합니다.');
+    await store.saveReview({
+      orderId: order.id,
+      customerId: customer.id,
+      rating: input.rating,
+      body: input.body,
+      photoUrl: input.photoUrl,
+    });
+    await refreshHistory(customer.id);
+    await refreshPublicReviews();
+    showToast('후기를 남겨 주셔서 감사합니다!');
+  }
+
+  async function handleReviewVisibility(reviewId: string, visible: boolean) {
+    try {
+      await store.setReviewVisibility(reviewId, visible);
+      await refreshAdmin();
+      await refreshPublicReviews();
+      showToast(visible ? '리뷰를 다시 공개했어요.' : '리뷰를 숨겼어요.');
+    } catch (error) {
+      showToast(errorMessage(error));
+    }
+  }
+
+  async function handleReviewReply(reviewId: string, reply: string) {
+    try {
+      await store.replyReview(reviewId, reply);
+      await refreshAdmin();
+      await refreshPublicReviews();
+      showToast('사장님 답글을 저장했어요.');
+    } catch (error) {
+      showToast(errorMessage(error));
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (!customer) return;
+    await store.deleteMyData(customer.id);
+    setCustomer(null);
+    setOrders([]);
+    setMyReviews([]);
+    showToast('탈퇴 처리했어요. 이름·연락처·주소·파일은 파기되고 결제 기록만 비식별로 보관됩니다.');
+  }
+
   async function handleSeed() {
     try {
       await store.seedSampleData();
       await refreshAdmin();
+      await refreshPublicReviews();
       if (customer) await refreshHistory(customer.id);
       showToast('시안 예시 주문을 넣었어요. 관리자 화면에서 상태를 바꿔 보세요.');
     } catch (error) {
@@ -238,10 +366,14 @@ export default function App() {
     }
   }
 
+  function handlePickupChange(pickup: PickupMethod) {
+    patchOptions({ pickup });
+  }
+
   const showQuoteBar =
     view === 'shop' &&
     !receipt &&
-    (file !== null || options.pages > 1 || options.copies > 1 || options.binding !== 'none');
+    (file !== null || options.pages > 1 || options.copies > 1 || options.binding !== 'none' || options.product === 'card');
 
   return (
     <div className="flex min-h-screen w-full max-w-full flex-col overflow-x-hidden bg-paper">
@@ -257,6 +389,7 @@ export default function App() {
         {view === 'shop' && (
           <>
             <Hero />
+            <EcoBanner onEcoQuote={handleEcoQuote} />
 
             <section id="quote" className="container-page pt-12 sm:pt-16">
               <div className="flex flex-wrap items-end justify-between gap-3">
@@ -266,7 +399,7 @@ export default function App() {
                     실시간 견적 계산기
                   </h2>
                   <p className="mt-2 text-sm leading-relaxed text-ink-600">
-                    A4 한 가지 규격 · 파일을 올리고 옵션만 고르면 금액이 바로 계산돼요. 로그인은 필요 없습니다.
+                    A4 출력·제본부터 명함까지 · 파일을 올리고 옵션만 고르면 금액이 바로 계산돼요. 로그인은 필요 없습니다.
                   </p>
                 </div>
                 <p className="flex items-center gap-1.5 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-ink-600">
@@ -309,14 +442,20 @@ export default function App() {
                   />
                 </div>
                 <div className="min-w-0">
-                  <SummaryCard quote={quote} file={file} onOrder={() => scrollToShop('order')} />
+                  <SummaryCard quote={quote} file={file} onOrder={() => scrollTo('order')} onChangePickup={handlePickupChange} />
                 </div>
               </div>
             </section>
 
             <PriceTable />
 
+            <EcoSection onEcoQuote={handleEcoQuote} />
+
             <StoreInfo onSampleAction={showToast} />
+
+            <ReviewSummary reviews={publicReviews} />
+
+            <FaqSection onKakao={handleKakao} />
 
             <OrderSection
               quote={quote}
@@ -324,6 +463,8 @@ export default function App() {
               customer={customer}
               receipt={receipt}
               storeMode={storeMode}
+              pickup={options.pickup}
+              onPickupChange={handlePickupChange}
               onLoginClick={() => setLoginOpen(true)}
               onSubmit={handleOrder}
               onReset={handleReset}
@@ -336,12 +477,16 @@ export default function App() {
           <HistorySection
             customer={customer}
             orders={orders}
+            reviews={myReviews}
             loading={loading}
             storeMode={storeMode}
             onLoginClick={() => setLoginOpen(true)}
             onLogout={() => void handleLogout()}
             onReorder={handleReorder}
             onNewOrder={() => handleNavigate('shop')}
+            onDeleteAccount={handleDeleteAccount}
+            onSaveReview={handleSaveReview}
+            onNotice={showToast}
           />
         )}
 
@@ -350,12 +495,19 @@ export default function App() {
             orders={allOrders}
             customers={customers}
             history={statusHistory}
+            reviews={adminReviews}
             loading={loading}
             storeMode={storeMode}
             busyOrderId={busyOrderId}
             onStatusChange={(orderId, status) => void handleStatusChange(orderId, status)}
+            onConfirmPayment={(orderId) => void handleConfirmPayment(orderId)}
+            onAddPhoto={handleAddPhoto}
+            onRemovePhoto={handleRemovePhoto}
             onRefresh={() => void refreshAdmin()}
             onSeed={() => void handleSeed()}
+            onSetReviewVisibility={(reviewId, visible) => void handleReviewVisibility(reviewId, visible)}
+            onReplyReview={(reviewId, reply) => void handleReviewReply(reviewId, reply)}
+            onNotice={showToast}
           />
         )}
       </main>
@@ -410,9 +562,9 @@ export default function App() {
               <div>
                 <p className="font-bold text-white/80">문의</p>
                 <ul className="mt-2.5 space-y-1.5 text-white/50">
-                  <li className="num">031-000-0000</li>
-                  <li>카카오톡 @카피박스</li>
-                  <li className="break-words">경기도 고양시 일산동구 중앙로 1234</li>
+                  <li className="num">{STORE.phone}</li>
+                  <li>카카오톡 {STORE.kakaoChannel}</li>
+                  <li className="break-words">{STORE.address}</li>
                 </ul>
               </div>
             </div>
@@ -420,9 +572,11 @@ export default function App() {
 
           <div className="mt-8 flex flex-col gap-2 border-t border-white/10 pt-5 text-[10px] leading-relaxed text-white/35 sm:flex-row sm:items-center sm:justify-between">
             <p className="break-words">
-              시안용 페이지입니다. 상호·주소·연락처는 샘플이며 실제 매장 정보로 교체해 주세요.
+              {STORE.isSample
+                ? '시안용 페이지입니다. 상호·주소·연락처·계좌는 샘플이며 실제 매장 정보로 교체해 주세요.'
+                : '카피박스 · 사업자 정보는 실제 매장 정보로 표시됩니다.'}
               <br />
-              {STORE_MODE_LABEL[storeMode]}
+              {STORE_MODE_LABEL[storeMode]} · 인쇄 PDF는 출고·배송 완료 14일 뒤 파기 · 주민번호·카드번호 미수집
             </p>
             <p className="shrink-0">© 2026 COPYBOX. All rights reserved.</p>
           </div>
@@ -435,17 +589,21 @@ export default function App() {
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="truncate text-[10px] font-medium text-ink-400">
-                총 예상 금액 · {quote.pages}페이지 × {quote.copies}부
+                {options.product === 'card'
+                  ? `총 예상 금액 · 명함 ${quote.cardQty}매`
+                  : `총 예상 금액 · ${quote.pages}페이지 × ${quote.copies}부`}
               </p>
               <p className="num text-[19px] font-extrabold leading-tight text-ink-900">{won(quote.total)}</p>
             </div>
-            <button type="button" onClick={() => scrollToShop('order')} className="btn-primary shrink-0 !px-4 !py-3 !text-[13px]">
+            <button type="button" onClick={() => scrollTo('order')} className="btn-primary shrink-0 !px-4 !py-3 !text-[13px]">
               주문 접수
               <IconArrowRight className="h-4 w-4" />
             </button>
           </div>
         </div>
       )}
+
+      <NoticePopup onEcoQuote={handleEcoQuote} />
 
       <LoginModal
         open={loginOpen}

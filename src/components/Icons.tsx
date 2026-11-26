@@ -190,3 +190,19 @@ export function IconRefresh({ className = base }: IconProps) {
     </svg>
   );
 }
+
+export function IconChevron({ className = base }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m9 6 6 6-6 6" />
+    </svg>
+  );
+}
+
+export function IconStar({ className = base }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="m12 3.6 2.6 5.3 5.9.86-4.25 4.14 1 5.86L12 16.9l-5.25 2.76 1-5.86L3.5 9.76l5.9-.86L12 3.6Z" />
+    </svg>
+  );
+}
