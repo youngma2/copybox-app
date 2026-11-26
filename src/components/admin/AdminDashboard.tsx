@@ -203,19 +203,28 @@ export default function AdminDashboard({ orders }: { orders: OrderWithCustomer[]
             <p className="text-[12px] font-bold text-ink-900">시간대별 주문</p>
             <span className="text-[10px] text-ink-400">집중 시간대 {pad(peakHour)}시</span>
           </div>
-          <div className="mt-3 flex h-28 items-end gap-[2px]" data-testid="dashboard-hour">
+          <div className="mt-3 flex h-24 items-end gap-[2px]" data-testid="dashboard-hour">
             {byHour.map((count, hour) => (
-              <span key={hour} className="group relative flex min-w-0 flex-1 flex-col items-center justify-end">
+              <span
+                key={hour}
+                className="flex h-full min-w-0 flex-1 flex-col justify-end"
+                title={`${pad(hour)}시 · ${count}건`}
+              >
                 <span
-                  className={`w-full rounded-t ${count > 0 ? 'bg-mint/70' : 'bg-ink-50'}`}
-                  style={{ height: `${Math.max(4, (count / maxHour) * 100)}%` }}
-                  title={`${pad(hour)}시 · ${count}건`}
+                  className={`w-full rounded-t ${count > 0 ? 'bg-mint/70' : 'bg-ink-100'}`}
+                  style={{ height: count > 0 ? `${Math.max(6, (count / maxHour) * 100)}%` : '2px' }}
                 />
-                {hour % 3 === 0 && <span className="mt-1 text-[8px] text-ink-400">{hour}</span>}
               </span>
             ))}
           </div>
-          <p className="mt-1 text-[10px] text-ink-400">0~23시 · 주문 접수 시각 기준</p>
+          <div className="mt-1 flex gap-[2px] text-[8px] text-ink-400" aria-hidden="true">
+            {byHour.map((_, hour) => (
+              <span key={hour} className="min-w-0 flex-1 text-center">
+                {hour % 3 === 0 ? hour : ''}
+              </span>
+            ))}
+          </div>
+          <p className="mt-0.5 text-[10px] text-ink-400">0~23시 · 주문 접수 시각 기준</p>
         </div>
       </div>
 
