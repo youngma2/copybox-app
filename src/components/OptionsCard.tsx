@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { won } from '../lib/format';
 import {
+  BINDING_NOTE,
   BINDING_OPTIONS,
   COLOR_LABEL,
   MAX_COPIES,
@@ -8,13 +9,11 @@ import {
   MIN_COPIES,
   MIN_PAGES,
   PAPER_NOTE,
-  PAPER_SIZES,
   SIDES_LABEL,
   clamp,
   unitPagePrice,
   type BindingId,
   type ColorMode,
-  type PaperSize,
   type QuoteInput,
   type Sides,
 } from '../lib/pricing';
@@ -59,15 +58,15 @@ function Segmented<T extends string>({
             aria-pressed={selected}
             data-testid={`${testIdPrefix}-${option.value}`}
             onClick={() => onChange(option.value)}
-            className={`rounded-xl border px-2 py-2.5 text-center transition ${
+            className={`min-w-0 rounded-xl border px-2 py-2.5 text-center transition ${
               selected
                 ? 'border-brand-600 bg-brand-50 text-brand-700 ring-1 ring-brand-600'
                 : 'border-ink-100 bg-white text-ink-800 hover:border-ink-200 hover:bg-ink-50/60'
             }`}
           >
-            <span className="block text-sm font-bold">{option.label}</span>
+            <span className="block truncate text-sm font-bold">{option.label}</span>
             {option.sub ? (
-              <span className={`mt-0.5 block text-[10px] font-medium ${selected ? 'text-brand-600' : 'text-ink-400'}`}>
+              <span className={`mt-0.5 block truncate text-[10px] font-medium ${selected ? 'text-brand-600' : 'text-ink-400'}`}>
                 {option.sub}
               </span>
             ) : null}
@@ -86,7 +85,7 @@ function Stepper({
   onChange,
   label,
   testId,
-  unit = '면',
+  unit = '페이지',
 }: {
   value: number;
   min: number;
@@ -161,27 +160,21 @@ function Stepper({
 }
 
 export default function OptionsCard({ value, pagesAuto, fileName, onChange }: OptionsCardProps) {
-  const sizeOptions: SegmentedOption<PaperSize>[] = PAPER_SIZES.map((size) => ({
-    value: size,
-    label: size,
-    sub: PAPER_NOTE[size],
-  }));
-
   const colorOptions: SegmentedOption<ColorMode>[] = (['mono', 'color'] as ColorMode[]).map((color) => ({
     value: color,
     label: COLOR_LABEL[color],
-    sub: `${won(unitPagePrice(value.size, color, 'single'))}/면`,
+    sub: `${won(unitPagePrice(value.size, color, 'single'))}/페이지`,
   }));
 
   const sideOptions: SegmentedOption<Sides>[] = (['single', 'double'] as Sides[]).map((sides) => ({
     value: sides,
     label: SIDES_LABEL[sides],
-    sub: sides === 'double' ? '10% 할인' : '기본 단가',
+    sub: `${won(unitPagePrice(value.size, value.color, sides))}/페이지`,
   }));
 
   return (
     <section className="card" aria-labelledby="options-title">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-5 py-4 md:px-6">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-4 py-4 sm:px-5 md:px-6">
         <div className="flex items-center gap-2.5">
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-50 text-brand-600">
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
@@ -195,28 +188,28 @@ export default function OptionsCard({ value, pagesAuto, fileName, onChange }: Op
         <p className="text-[11px] text-ink-400">바꾸는 즉시 견적이 다시 계산돼요</p>
       </div>
 
-      <div className="space-y-5 px-5 py-5 md:px-6 md:py-6">
+      <div className="space-y-5 px-4 py-5 sm:px-5 md:px-6 md:py-6">
         <div className="grid gap-5 sm:grid-cols-2">
           <div>
             <div className="mb-2 flex items-center justify-between">
               <span className="text-[13px] font-bold text-ink-800">용지 크기</span>
               <span className="text-[10px] font-medium text-ink-400">규격</span>
             </div>
-            <Segmented
-              label="용지 크기"
-              testIdPrefix="size"
-              columns="grid-cols-3"
-              value={value.size}
-              options={sizeOptions}
-              onChange={(size) => onChange({ size })}
-            />
-            <p className="mt-1.5 text-[10px] text-ink-400">{PAPER_NOTE[value.size]}</p>
+            <div
+              data-testid="size-a4"
+              aria-label="용지 크기 A4"
+              className="flex items-center justify-between rounded-xl border border-brand-600 bg-brand-50 px-3 py-2.5 ring-1 ring-brand-600"
+            >
+              <span className="text-sm font-bold text-brand-700">A4</span>
+              <span className="text-[10px] font-semibold text-brand-600">한 가지 규격</span>
+            </div>
+            <p className="mt-1.5 text-[10px] text-ink-400">{PAPER_NOTE.A4}</p>
           </div>
 
           <div>
             <div className="mb-2 flex items-center justify-between">
               <span className="text-[13px] font-bold text-ink-800">색상</span>
-              <span className="text-[10px] font-medium text-ink-400">1면 기준 단가</span>
+              <span className="text-[10px] font-medium text-ink-400">1페이지 기준</span>
             </div>
             <Segmented
               label="색상"
@@ -269,18 +262,19 @@ export default function OptionsCard({ value, pagesAuto, fileName, onChange }: Op
               testId="pages-input"
             />
             <p className="mt-1.5 truncate text-[10px] text-ink-400">
-              {fileName ? `${fileName} · 1면 = 1페이지` : '파일을 올리면 자동으로 채워져요'}
-            </p>          </div>
+              {fileName ? `${fileName} · 1페이지 = 1면` : '파일을 올리면 자동으로 채워져요'}
+            </p>
+          </div>
         </div>
 
         <div className="h-px bg-ink-100" />
 
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <span className="text-[13px] font-bold text-ink-800">제본 · 후가공</span>
-            <span className="text-[10px] font-medium text-ink-400">부수 1부 기준</span>
+            <span className="text-[13px] font-bold text-ink-800">제본 방식</span>
+            <span className="text-[10px] font-medium text-ink-400">3종 · 1부 기준</span>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-3 gap-2">
             {BINDING_OPTIONS.map((option) => {
               const selected = option.id === value.binding;
               return (
@@ -290,23 +284,23 @@ export default function OptionsCard({ value, pagesAuto, fileName, onChange }: Op
                   aria-pressed={selected}
                   data-testid={`binding-${option.id}`}
                   onClick={() => onChange({ binding: option.id as BindingId })}
-                  className={`rounded-xl border px-3 py-2.5 text-left transition ${
+                  className={`min-w-0 rounded-xl border px-1.5 py-2.5 text-center transition ${
                     selected
                       ? 'border-brand-600 bg-brand-50 ring-1 ring-brand-600'
                       : 'border-ink-100 bg-white hover:border-ink-200 hover:bg-ink-50/60'
                   }`}
                 >
-                  <span className={`block text-[13px] font-bold ${selected ? 'text-brand-700' : 'text-ink-900'}`}>
+                  <span className={`block truncate text-[13px] font-bold ${selected ? 'text-brand-700' : 'text-ink-900'}`}>
                     {option.label}
                   </span>
-                  <span className={`mt-0.5 block text-[10px] ${selected ? 'text-brand-600' : 'text-ink-400'}`}>
-                    {option.price === 0 ? '추가 비용 없음' : `+${won(option.price)}`}
+                  <span className={`mt-0.5 block truncate text-[10px] ${selected ? 'text-brand-600' : 'text-ink-400'}`}>
+                    {option.price === 0 ? '0원' : `${won(option.price)}~`}
                   </span>
                 </button>
               );
             })}
-            <div className="hidden sm:block" />
           </div>
+          <p className="mt-1.5 text-[10px] leading-relaxed text-ink-400">{BINDING_NOTE}</p>
         </div>
 
         <div className="h-px bg-ink-100" />
@@ -327,8 +321,8 @@ export default function OptionsCard({ value, pagesAuto, fileName, onChange }: Op
               unit="부"
             />
           </div>
-          <p className="text-[10px] leading-relaxed text-ink-400">
-            {value.size} {COLOR_LABEL[value.color]} {SIDES_LABEL[value.sides]} · 종이{' '}
+          <p className="max-w-full text-[10px] leading-relaxed text-ink-400">
+            {value.size} {COLOR_LABEL[value.color]} {SIDES_LABEL[value.sides]} · 페이지{' '}
             {value.sides === 'double' ? Math.ceil(value.pages / 2) : value.pages}장 × {value.copies}부
             <br />
             제본비는 부수마다 한 번씩 더해져요

@@ -1,19 +1,28 @@
-export type PaperSize = 'A4' | 'A3' | 'B4';
+/**
+ * 카피박스 단가 규칙 — 2026-11 개편
+ * - 판형: A4 한 가지
+ * - A4 흑백: 단면 50원/페이지, 양면 40원/페이지 (할인 공식 없이 페이지당 정확한 단가)
+ * - A4 컬러: 단면 300원/페이지, 양면 250원/페이지 (흑백이 기본 선택)
+ * - 제본: 없음(0원) / 스프링(1,500원~) / 와이어(1,500원~)
+ *   스프링·와이어의 사이즈별 금액은 추후 확정하며, 견적에는 최소 금액(1,500원)을 적용합니다.
+ */
+
+export type PaperSize = 'A4';
 export type ColorMode = 'mono' | 'color';
 export type Sides = 'single' | 'double';
-export type BindingId = 'none' | 'coil' | 'perfect' | 'saddle' | 'coating';
+export type BindingId = 'none' | 'coil' | 'wire';
 
-export const PAPER_SIZES: PaperSize[] = ['A4', 'A3', 'B4'];
+export const PAPER_SIZES: PaperSize[] = ['A4'];
+export const DEFAULT_SIZE: PaperSize = 'A4';
 
-/** 1면(페이지)당 기본 단가 — 샘플 단가표 (원) */
-export const BASE_PAGE_PRICE: Record<PaperSize, Record<ColorMode, number>> = {
-  A4: { mono: 50, color: 300 },
-  A3: { mono: 100, color: 600 },
-  B4: { mono: 80, color: 400 },
+/** 1페이지(1면)당 인쇄 단가 (원) */
+export const PAGE_UNIT_PRICE: Record<ColorMode, Record<Sides, number>> = {
+  mono: { single: 50, double: 40 },
+  color: { single: 300, double: 250 },
 };
 
-/** 양면 인쇄는 면당 10% 할인 */
-export const DOUBLE_SIDE_RATE = 0.9;
+/** 단가표에서 강조하는 대표 단가 */
+export const A4_MONO_PRICE = PAGE_UNIT_PRICE.mono;
 
 export const MIN_PAGES = 1;
 export const MAX_PAGES = 2000;
@@ -23,26 +32,44 @@ export const MAX_COPIES = 999;
 export interface BindingOption {
   id: BindingId;
   label: string;
+  /** 견적에 적용하는 금액 — startingAt=true 이면 최소 금액 */
   price: number;
+  /** '~부터' 표시 여부 (사이즈별 금액 추후 확정) */
+  startingAt: boolean;
   note: string;
 }
 
 export const BINDING_OPTIONS: BindingOption[] = [
-  { id: 'none', label: '없음', price: 0, note: '낱장으로 출력' },
-  { id: 'coil', label: '스프링 제본', price: 3000, note: '넘기기 편한 스프링' },
-  { id: 'perfect', label: '무선 제본', price: 3500, note: '책자 형태로 제작' },
-  { id: 'saddle', label: '중철 제본', price: 2500, note: '접지 후 스테이플' },
-  { id: 'coating', label: '코팅', price: 1000, note: '표지 코팅 포함' },
+  { id: 'none', label: '제본 없음', price: 0, startingAt: false, note: '낱장으로 출력 · 추가 비용 없음' },
+  { id: 'coil', label: '스프링', price: 1500, startingAt: true, note: '사이즈별 금액 추후 확정' },
+  { id: 'wire', label: '와이어', price: 1500, startingAt: true, note: '사이즈별 금액 추후 확정' },
 ];
 
+export const BINDING_NOTE =
+  '스프링·와이어는 1,500원부터 시작하며, 사이즈별 금액은 추후 확정해 안내드립니다. 견적서에는 최소 금액(1,500원)이 적용됩니다.';
+
 export const PAPER_NOTE: Record<PaperSize, string> = {
-  A4: '가장 일반적인 문서 크기',
-  A3: 'A4의 2배, 도면·포스터',
-  B4: '교재·시험지에 많이 쓰여요',
+  A4: '가장 일반적인 문서 크기 · A4 한 가지 규격',
 };
 
 export const COLOR_LABEL: Record<ColorMode, string> = { mono: '흑백', color: '컬러' };
 export const SIDES_LABEL: Record<Sides, string> = { single: '단면', double: '양면' };
+
+export function isBindingId(value: unknown): value is BindingId {
+  return value === 'none' || value === 'coil' || value === 'wire';
+}
+
+export function isColorMode(value: unknown): value is ColorMode {
+  return value === 'mono' || value === 'color';
+}
+
+export function isSides(value: unknown): value is Sides {
+  return value === 'single' || value === 'double';
+}
+
+export function bindingById(id: BindingId): BindingOption {
+  return BINDING_OPTIONS.find((option) => option.id === id) ?? BINDING_OPTIONS[0];
+}
 
 export function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
@@ -51,8 +78,8 @@ export function clamp(value: number, min: number, max: number): number {
 
 /** 현재 규격·색상·인쇄면 기준 1페이지(1면) 단가 */
 export function unitPagePrice(size: PaperSize, color: ColorMode, sides: Sides): number {
-  const base = BASE_PAGE_PRICE[size][color];
-  return sides === 'double' ? Math.round(base * DOUBLE_SIDE_RATE) : base;
+  void size;
+  return PAGE_UNIT_PRICE[color][sides];
 }
 
 export interface QuoteInput {
@@ -71,17 +98,13 @@ export interface Quote {
   pages: number;
   copies: number;
   binding: BindingOption;
-  /** 적용 단가 (원/면) */
+  /** 적용 단가 (원/페이지) */
   unitPrice: number;
-  /** 할인 전 단가 (원/면) */
-  listUnitPrice: number;
   /** 인쇄비 합계 */
   printCost: number;
-  /** 양면 할인액 */
-  doubleDiscount: number;
-  /** 제본비 합계 */
+  /** 제본비 합계 (부수 × 1부 제본비) */
   bindingCost: number;
-  /** 예상 총액 (VAT 포함) */
+  /** 예상 총액 */
   total: number;
   /** 실제 사용하는 종이 장수 (1부 기준) */
   sheetsPerCopy: number;
@@ -90,11 +113,9 @@ export interface Quote {
 export function calculateQuote(input: QuoteInput): Quote {
   const pages = clamp(input.pages, MIN_PAGES, MAX_PAGES);
   const copies = clamp(input.copies, MIN_COPIES, MAX_COPIES);
-  const listUnitPrice = BASE_PAGE_PRICE[input.size][input.color];
   const unitPrice = unitPagePrice(input.size, input.color, input.sides);
   const printCost = unitPrice * pages * copies;
-  const doubleDiscount = (listUnitPrice - unitPrice) * pages * copies;
-  const binding = BINDING_OPTIONS.find((option) => option.id === input.binding) ?? BINDING_OPTIONS[0];
+  const binding = bindingById(input.binding);
   const bindingCost = binding.price * copies;
 
   return {
@@ -105,9 +126,7 @@ export function calculateQuote(input: QuoteInput): Quote {
     copies,
     binding,
     unitPrice,
-    listUnitPrice,
     printCost,
-    doubleDiscount,
     bindingCost,
     total: printCost + bindingCost,
     sheetsPerCopy: input.sides === 'double' ? Math.ceil(pages / 2) : pages,

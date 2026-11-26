@@ -1,30 +1,46 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import type { DemoUser } from '../lib/auth';
 import { PROVIDER_LABEL } from '../lib/auth';
 import { won } from '../lib/format';
-import { COLOR_LABEL, SIDES_LABEL, type Quote } from '../lib/pricing';
-import { PICKUP_LABEL, createOrderRecord, formatPhone, isValidPhone, type OrderRecord, type PickupMethod } from '../lib/order';
+import {
+  BINDING_OPTIONS,
+  COLOR_LABEL,
+  SIDES_LABEL,
+  type Quote,
+} from '../lib/pricing';
+import {
+  PICKUP_LABEL,
+  formatOrderDate,
+  formatPhone,
+  isValidPhone,
+  type OrderFormValues,
+  type PickupMethod,
+} from '../lib/order';
+import { ORDER_STATUS_LABEL, type Customer, type Order, type StoreMode } from '../lib/store';
 import type { UploadedFileMeta } from './Uploader';
 import { IconArrowRight, IconCheck, IconStore, IconTruck, IconUser } from './Icons';
 
 interface OrderSectionProps {
   quote: Quote;
   file: UploadedFileMeta | null;
-  user: DemoUser | null;
-  receipt: OrderRecord | null;
+  customer: Customer | null;
+  receipt: Order | null;
+  storeMode: StoreMode;
   onLoginClick: () => void;
-  onSubmit: (record: OrderRecord) => void;
+  onSubmit: (values: OrderFormValues) => Promise<void>;
   onReset: () => void;
+  onViewHistory: () => void;
 }
 
 export default function OrderSection({
   quote,
   file,
-  user,
+  customer,
   receipt,
+  storeMode,
   onLoginClick,
   onSubmit,
   onReset,
+  onViewHistory,
 }: OrderSectionProps) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -33,13 +49,15 @@ export default function OrderSection({
   const [notes, setNotes] = useState('');
   const [agree, setAgree] = useState(true);
   const [touched, setTouched] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const sectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (user) {
-      setName((current) => (current === '' || current === '홍길동' ? user.name : current));
-    }
-  }, [user]);
+    if (!customer) return;
+    setName((current) => (current === '' ? customer.name : current));
+    setPhone((current) => (current === '' ? formatPhone(customer.phone) : current));
+  }, [customer]);
 
   // 접수증이 그려진 뒤에 접수 위치로 이동 (폼이 사라져 높이가 바뀌므로)
   useEffect(() => {
@@ -56,30 +74,31 @@ export default function OrderSection({
   const agreeError = !agree ? '개인정보 수집·이용에 동의해 주세요.' : null;
   const hasError = Boolean(nameError || phoneError || addressError || agreeError);
 
-  function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setTouched(true);
-    if (hasError) return;
-    onSubmit(
-      createOrderRecord({
-        name,
-        phone,
-        pickup,
-        address,
-        notes,
-        user,
-        fileName: file?.name ?? null,
-        filePages: file?.pages ?? null,
-        autoDetected: Boolean(file?.autoDetected),
-        quote,
-      }),
-    );
+    setSubmitError(null);
+    if (hasError || submitting) return;
+    setSubmitting(true);
+    try {
+      await onSubmit({ name, phone, pickup, address, notes, agree });
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '주문을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
     <section id="order" className="container-page py-14 sm:py-20" ref={sectionRef}>
       {receipt ? (
-        <ReceiptView record={receipt} onReset={onReset} />
+        <ReceiptView
+          record={receipt}
+          customer={customer}
+          storeMode={storeMode}
+          onReset={onReset}
+          onViewHistory={onViewHistory}
+        />
       ) : (
         <>
           <div className="flex flex-wrap items-end justify-between gap-4">
@@ -98,20 +117,22 @@ export default function OrderSection({
           </div>
 
           <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-            <form onSubmit={handleSubmit} noValidate className="card p-5 sm:p-6">
-              {user ? (
+            <form onSubmit={handleSubmit} noValidate className="card min-w-0 p-4 sm:p-6">
+              {customer ? (
                 <div className="mb-5 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-brand-50/70 px-3.5 py-2.5">
-                  <p className="flex items-center gap-2 text-[12px] font-semibold text-brand-700">
-                    <IconUser className="h-4 w-4" />
-                    {user.name}님 · {PROVIDER_LABEL[user.provider]} 로그인으로 접수합니다
+                  <p className="flex min-w-0 items-center gap-2 text-[12px] font-semibold text-brand-700">
+                    <IconUser className="h-4 w-4 shrink-0" />
+                    <span className="min-w-0 truncate">
+                      {customer.name}님 · {PROVIDER_LABEL[customer.provider]} 주문으로 접수합니다
+                    </span>
                   </p>
-                  <span className="text-[10px] text-brand-600">주문 내역은 회원 계정에 저장돼요</span>
+                  <span className="text-[10px] text-brand-600">내 주문 이력에 쌓여요</span>
                 </div>
               ) : (
                 <div className="mb-5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed border-ink-200 bg-ink-50/60 px-3.5 py-2.5">
-                  <p className="text-[12px] text-ink-600">
-                    <strong className="font-semibold text-ink-800">비회원</strong>으로 접수합니다. 로그인하면 내역을 다시
-                    볼 수 있어요.
+                  <p className="min-w-0 text-[12px] leading-relaxed text-ink-600">
+                    <strong className="font-semibold text-ink-800">비회원</strong> 주문도 이 브라우저에 저장되어
+                    성함·연락처로 이력을 다시 볼 수 있어요.
                   </p>
                   <button
                     type="button"
@@ -176,24 +197,24 @@ export default function OrderSection({
                         aria-pressed={selected}
                         data-testid={`pickup-${method}`}
                         onClick={() => setPickup(method)}
-                        className={`flex items-center gap-2.5 rounded-xl border px-3.5 py-3 text-left transition ${
+                        className={`flex min-w-0 items-center gap-2.5 rounded-xl border px-3 py-3 text-left transition ${
                           selected
                             ? 'border-brand-600 bg-brand-50 ring-1 ring-brand-600'
                             : 'border-ink-100 bg-white hover:border-ink-200 hover:bg-ink-50/60'
                         }`}
                       >
                         <span
-                          className={`grid h-8 w-8 place-items-center rounded-lg ${
+                          className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${
                             selected ? 'bg-brand-600 text-white' : 'bg-ink-50 text-ink-600'
                           }`}
                         >
                           {method === 'store' ? <IconStore className="h-4 w-4" /> : <IconTruck className="h-4 w-4" />}
                         </span>
-                        <span>
-                          <span className={`block text-[13px] font-bold ${selected ? 'text-brand-700' : 'text-ink-900'}`}>
+                        <span className="min-w-0">
+                          <span className={`block truncate text-[13px] font-bold ${selected ? 'text-brand-700' : 'text-ink-900'}`}>
                             {method === 'store' ? '매장 방문' : '택배 · 퀵'}
                           </span>
-                          <span className="block text-[10px] text-ink-400">
+                          <span className="block truncate text-[10px] text-ink-400">
                             {method === 'store' ? '준비 완료 후 방문' : '배송비 별도 안내'}
                           </span>
                         </span>
@@ -247,17 +268,23 @@ export default function OrderSection({
                     checked={agree}
                     onChange={(event) => setAgree(event.target.checked)}
                     data-testid="order-agree"
-                    className="mt-0.5 h-4 w-4 rounded border-ink-200 text-brand-600 focus:ring-brand-500"
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-ink-200 text-brand-600 focus:ring-brand-500"
                   />
                   <span>
-                    개인정보 수집·이용에 동의합니다. (시안에서는 어떤 정보도 전송·저장되지 않습니다)
+                    개인정보 수집·이용에 동의합니다. (성함·연락처는 주문 확인과 이력 조회에만 사용합니다)
                   </span>
                 </label>
                 {touched && agreeError && <p className="mt-1 text-[11px] font-medium text-rose-600">{agreeError}</p>}
               </div>
 
-              <button type="submit" data-testid="submit-order" className="btn-primary mt-5 w-full !py-4">
-                견적 및 주문 접수하기
+              {submitError && (
+                <p role="alert" className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-[11px] font-medium leading-relaxed text-rose-700">
+                  {submitError}
+                </p>
+              )}
+
+              <button type="submit" data-testid="submit-order" disabled={submitting} className="btn-primary mt-5 w-full !py-4">
+                {submitting ? '주문을 저장하는 중…' : '견적 및 주문 접수하기'}
                 <IconArrowRight className="h-4 w-4" />
               </button>
               <p className="mt-2.5 text-center text-[11px] text-ink-400">
@@ -265,7 +292,7 @@ export default function OrderSection({
               </p>
             </form>
 
-            <div className="space-y-3">
+            <div className="min-w-0 space-y-3">
               <div className="card overflow-hidden">
                 <div className="border-b border-ink-100 px-5 py-3.5">
                   <h3 className="text-[14px] font-bold text-ink-900">접수 내용 요약</h3>
@@ -287,13 +314,16 @@ export default function OrderSection({
                     </div>
                     <div className="flex justify-between gap-3">
                       <dt className="text-ink-400">인쇄</dt>
-                      <dd className="font-semibold text-ink-800">
-                        {SIDES_LABEL[quote.sides]} · {quote.pages}면 × {quote.copies}부
+                      <dd className="text-right font-semibold text-ink-800">
+                        {SIDES_LABEL[quote.sides]} · {quote.pages}페이지 × {quote.copies}부
                       </dd>
                     </div>
                     <div className="flex justify-between gap-3">
                       <dt className="text-ink-400">제본</dt>
-                      <dd className="font-semibold text-ink-800">{quote.binding.label}</dd>
+                      <dd className="font-semibold text-ink-800">
+                        {quote.binding.label}
+                        {quote.binding.startingAt ? ' (1,500원~)' : ''}
+                      </dd>
                     </div>
                   </dl>
                   <div className="mt-3 flex items-end justify-between border-t border-dashed border-ink-200 pt-3">
@@ -325,8 +355,21 @@ export default function OrderSection({
   );
 }
 
-function ReceiptView({ record, onReset }: { record: OrderRecord; onReset: () => void }) {
-  const { quote } = record;
+function ReceiptView({
+  record,
+  customer,
+  storeMode,
+  onReset,
+  onViewHistory,
+}: {
+  record: Order;
+  customer: Customer | null;
+  storeMode: StoreMode;
+  onReset: () => void;
+  onViewHistory: () => void;
+}) {
+  const binding = BINDING_OPTIONS.find((option) => option.id === record.binding) ?? BINDING_OPTIONS[0];
+
   return (
     <div data-testid="receipt" className="mx-auto max-w-[560px] animate-pop">
       <div className="text-center">
@@ -335,32 +378,32 @@ function ReceiptView({ record, onReset }: { record: OrderRecord; onReset: () => 
         </span>
         <h2 className="mt-4 text-[24px] font-extrabold tracking-tight text-ink-900 sm:text-[28px]">주문 접수가 완료됐어요</h2>
         <p className="mt-2 text-[13px] leading-relaxed text-ink-600">
-          {record.name}님, 곧 매장에서 확인 연락을 드릴게요.
+          {customer?.name ?? '고객'}님, 곧 매장에서 확인 연락을 드릴게요.
           <br />
-          아래 접수 내용을 저장해 두시면 편리합니다.
+          접수 내용은 <strong className="font-semibold text-ink-800">내 주문 이력</strong>에서 언제든 다시 볼 수 있습니다.
         </p>
       </div>
 
       <div className="mt-6 overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-card">
-        <div className="flex items-start justify-between gap-3 border-b border-dashed border-ink-200 bg-ink-50/60 px-5 py-4">
-          <div>
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-dashed border-ink-200 bg-ink-50/60 px-5 py-4">
+          <div className="min-w-0">
             <p className="text-[10px] font-bold tracking-[0.2em] text-ink-400">COPYBOX 접수증</p>
-            <p data-testid="receipt-order-no" className="num mt-1 text-[15px] font-extrabold text-ink-900">
-              {record.orderNo}
+            <p data-testid="receipt-order-no" className="num mt-1 break-all text-[15px] font-extrabold text-ink-900">
+              {record.orderNumber}
             </p>
           </div>
           <div className="text-right">
             <p className="text-[10px] text-ink-400">접수 일시</p>
-            <p className="num mt-0.5 text-[11px] font-semibold text-ink-800">{record.submittedAt}</p>
+            <p className="num mt-0.5 text-[11px] font-semibold text-ink-800">{formatOrderDate(record.createdAt)}</p>
           </div>
         </div>
 
         <div className="px-5 py-4">
           <dl className="space-y-2.5 text-[12px]">
             <div className="flex justify-between gap-4">
-              <dt className="text-ink-400">주문자</dt>
-              <dd className="font-semibold text-ink-900">
-                {record.name} · <span className="num">{record.phone}</span>
+              <dt className="shrink-0 text-ink-400">주문자</dt>
+              <dd className="min-w-0 text-right font-semibold text-ink-900">
+                {customer?.name ?? '-'} · <span className="num">{customer ? formatPhone(customer.phone) : '-'}</span>
               </dd>
             </div>
             <div className="flex justify-between gap-4">
@@ -370,78 +413,82 @@ function ReceiptView({ record, onReset }: { record: OrderRecord; onReset: () => 
             {record.pickup === 'delivery' && record.address && (
               <div className="flex justify-between gap-4">
                 <dt className="shrink-0 text-ink-400">배송지</dt>
-                <dd className="text-right font-medium text-ink-800">{record.address}</dd>
+                <dd className="min-w-0 break-words text-right font-medium text-ink-800">{record.address}</dd>
               </div>
             )}
             <div className="flex justify-between gap-4">
-              <dt className="text-ink-400">파일</dt>
-              <dd className="max-w-[65%] truncate text-right font-medium text-ink-800" title={record.fileName ?? ''}>
-                {record.fileName ?? '미첨부'}
-                {record.autoDetected && record.filePages ? ` (${record.filePages}페이지 자동 인식)` : ''}
+              <dt className="shrink-0 text-ink-400">파일</dt>
+              <dd className="min-w-0 break-words text-right font-medium text-ink-800">
+                {record.files.length > 0
+                  ? record.files
+                      .map((file) => `${file.fileName}${file.pageCount ? ` (${file.pageCount}페이지)` : ''}`)
+                      .join(', ')
+                  : '미첨부'}
               </dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-ink-400">주문 구분</dt>
-              <dd className="font-medium text-ink-800">{record.memberLabel}</dd>
+              <dt className="text-ink-400">상태</dt>
+              <dd className="font-semibold text-brand-700">{ORDER_STATUS_LABEL[record.status]}</dd>
             </div>
-            {record.notes && (
+            {record.customerRequest && (
               <div className="flex justify-between gap-4">
                 <dt className="shrink-0 text-ink-400">요청 사항</dt>
-                <dd className="text-right font-medium text-ink-800">{record.notes}</dd>
+                <dd className="min-w-0 break-words text-right font-medium text-ink-800">{record.customerRequest}</dd>
               </div>
             )}
           </dl>
 
           <div className="mt-4 rounded-xl bg-ink-50/80 px-4 py-3.5">
-            <p className="text-[11px] font-bold text-ink-600">
-              {quote.size} {COLOR_LABEL[quote.color]} {SIDES_LABEL[quote.sides]} · {quote.pages}면 × {quote.copies}부
+            <p className="break-words text-[11px] font-bold text-ink-600">
+              A4 {COLOR_LABEL[record.colorMode]} {SIDES_LABEL[record.sides]} · {record.pages}페이지 × {record.copies}부 ·{' '}
+              {binding.label}
             </p>
             <div className="mt-2 space-y-1.5 text-[11px] text-ink-600">
-              <div className="flex justify-between">
-                <span>인쇄비</span>
-                <span className="num font-semibold text-ink-800">{won(quote.printCost)}</span>
+              <div className="flex justify-between gap-3">
+                <span>인쇄비 ({won(record.pageUnitPrice)}/페이지)</span>
+                <span className="num font-semibold text-ink-800">
+                  {won(record.pageUnitPrice * record.pages * record.copies)}
+                </span>
               </div>
-              {quote.doubleDiscount > 0 && (
-                <div className="flex justify-between">
-                  <span>양면 할인</span>
-                  <span className="num font-semibold text-mint">-{won(quote.doubleDiscount)}</span>
-                </div>
-              )}
-              {quote.binding.price > 0 && (
-                <div className="flex justify-between">
-                  <span>
-                    {quote.binding.label} × {quote.copies}부
-                  </span>
-                  <span className="num font-semibold text-ink-800">{won(quote.bindingCost)}</span>
-                </div>
-              )}
+              <div className="flex justify-between gap-3">
+                <span>
+                  {binding.label} 제본{binding.startingAt ? ' (1,500원~)' : ''} × {record.copies}부
+                </span>
+                <span className="num font-semibold text-ink-800">{won(record.bindingUnitPrice * record.copies)}</span>
+              </div>
             </div>
             <div className="mt-2.5 flex items-end justify-between border-t border-dashed border-ink-200 pt-2.5">
               <span className="text-[11px] font-semibold text-ink-600">총 예상 금액 (VAT 포함)</span>
               <span data-testid="receipt-total" className="num text-xl font-extrabold text-ink-900">
-                {won(quote.total)}
+                {won(record.totalPrice)}
               </span>
             </div>
           </div>
 
-          <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2.5 text-[11px] leading-relaxed text-amber-800">
-            <strong className="font-bold">시안 모드</strong> — 실제로 접수되지 않았고 결제도 이루어지지 않았습니다.
-            Supabase를 연결하면 이 화면이 실제 주문 저장으로 바뀝니다.
+          <p className="mt-4 break-words rounded-lg bg-amber-50 px-3 py-2.5 text-[11px] leading-relaxed text-amber-800">
+            <strong className="font-bold">시안 모드</strong> — 실제 결제는 없습니다. 이 주문은{' '}
+            {storeMode === 'demo' ? '이 브라우저(localStorage)에 손님 ID 기준으로' : 'Supabase(RLS 보호)에'} 저장됐고,
+            접수번호와 손님 ID로 과거 이력을 다시 볼 수 있습니다.
+            <br />
+            <span className="num">고객 ID: {record.customerId}</span>
           </p>
         </div>
       </div>
 
       <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+        <button
+          type="button"
+          onClick={onViewHistory}
+          data-testid="receipt-history-link"
+          className="btn-primary flex-1 !py-3"
+        >
+          내 주문 이력 보기
+        </button>
         <button type="button" onClick={onReset} data-testid="reset-quote" className="btn-ghost flex-1">
           새 견적 내기
         </button>
-        <a href="#price" className="btn-primary flex-1">
-          단가표 보기
-        </a>
       </div>
-      <p className="mt-3 text-center text-[11px] text-ink-400">
-        문의: 031-000-0000 (샘플) · 평일 09:00–19:00
-      </p>
+      <p className="mt-3 text-center text-[11px] text-ink-400">문의: 031-000-0000 (샘플) · 평일 09:00–19:00</p>
     </div>
   );
 }

@@ -37,24 +37,24 @@ export default function SummaryCard({ quote, file, onOrder }: SummaryCardProps) 
                   {file.name}
                 </p>
                 <p className="text-[10px] text-ink-400">
-                  {file.autoDetected ? `${file.pages}페이지 자동 인식` : '페이지 수 직접 입력'} · 총 {quote.pages}면
+                  {file.autoDetected ? `${file.pages}페이지 자동 인식` : '페이지 수 직접 입력'} · 총 {quote.pages}페이지
                 </p>
               </div>
             ) : (
               <p className="text-[11px] leading-relaxed text-ink-400">
                 파일을 올리면 페이지 수가 자동으로 채워져요.
                 <br />
-                지금은 {quote.pages}면 기준입니다.
+                지금은 {quote.pages}페이지 기준입니다.
               </p>
             )}
           </div>
 
           <dl className="mt-4 space-y-3">
             <div className="flex items-start justify-between gap-3">
-              <dt>
+              <dt className="min-w-0">
                 <span className="text-[13px] font-semibold text-ink-800">인쇄비</span>
                 <span className="mt-0.5 block text-[11px] leading-relaxed text-ink-400">
-                  {optionLine} · {won(quote.unitPrice)}/면 × {quote.pages}면 × {quote.copies}부
+                  {optionLine} · {won(quote.unitPrice)}/페이지 × {quote.pages}페이지 × {quote.copies}부
                 </span>
               </dt>
               <dd data-testid="print-cost" className="num shrink-0 text-[13px] font-bold text-ink-900">
@@ -62,41 +62,21 @@ export default function SummaryCard({ quote, file, onOrder }: SummaryCardProps) 
               </dd>
             </div>
 
-            {quote.doubleDiscount > 0 && (
-              <div className="flex items-start justify-between gap-3">
-                <dt>
-                  <span className="text-[13px] font-semibold text-ink-800">양면 할인</span>
-                  <span className="mt-0.5 block text-[11px] text-ink-400">면당 10% 자동 적용</span>
-                </dt>
-                <dd data-testid="double-discount" className="num shrink-0 text-[13px] font-bold text-mint">
-                  -{won(quote.doubleDiscount)}
-                </dd>
-              </div>
-            )}
-
-            {quote.binding.price > 0 && (
-              <div className="flex items-start justify-between gap-3">
-                <dt>
-                  <span className="text-[13px] font-semibold text-ink-800">{quote.binding.label}</span>
-                  <span className="mt-0.5 block text-[11px] text-ink-400">
-                    {won(quote.binding.price)} × {quote.copies}부
-                  </span>
-                </dt>
-                <dd data-testid="binding-cost" className="num shrink-0 text-[13px] font-bold text-ink-900">
-                  {won(quote.bindingCost)}
-                </dd>
-              </div>
-            )}
-
-            {quote.binding.price === 0 && (
-              <div className="flex items-start justify-between gap-3">
-                <dt>
-                  <span className="text-[13px] font-semibold text-ink-800">제본</span>
-                  <span className="mt-0.5 block text-[11px] text-ink-400">낱장 출력 · 추가 비용 없음</span>
-                </dt>
-                <dd className="num shrink-0 text-[13px] font-bold text-ink-400">0원</dd>
-              </div>
-            )}
+            <div className="flex items-start justify-between gap-3">
+              <dt className="min-w-0">
+                <span className="text-[13px] font-semibold text-ink-800">
+                  {quote.binding.id === 'none' ? '제본' : `${quote.binding.label} 제본`}
+                </span>
+                <span className="mt-0.5 block text-[11px] leading-relaxed text-ink-400">
+                  {quote.binding.price === 0
+                    ? '낱장 출력 · 추가 비용 없음'
+                    : `${won(quote.binding.price)}~ × ${quote.copies}부 · 사이즈별 금액 추후 확정`}
+                </span>
+              </dt>
+              <dd data-testid="binding-cost" className="num shrink-0 text-[13px] font-bold text-ink-900">
+                {won(quote.bindingCost)}
+              </dd>
+            </div>
           </dl>
 
           <div className="mt-4 border-t border-dashed border-ink-200 pt-4">
@@ -108,7 +88,7 @@ export default function SummaryCard({ quote, file, onOrder }: SummaryCardProps) 
               <p
                 data-testid="total-amount"
                 data-total={quote.total}
-                className="num text-[28px] font-extrabold leading-none tracking-tight text-ink-900"
+                className="num shrink-0 text-[28px] font-extrabold leading-none tracking-tight text-ink-900"
               >
                 {won(quote.total)}
               </p>
@@ -122,7 +102,7 @@ export default function SummaryCard({ quote, file, onOrder }: SummaryCardProps) 
 
           <div className="mt-3 flex items-start gap-1.5 text-[10px] leading-relaxed text-ink-400">
             <IconShield className="mt-px h-3.5 w-3.5 shrink-0 text-ink-400" />
-            <p>업로드한 파일은 브라우저 안에서만 확인하며, 시안 단계에서는 어디에도 저장되지 않습니다.</p>
+            <p>업로드한 파일은 브라우저 안에서만 확인하며, 파일 내용은 저장하지 않습니다.</p>
           </div>
         </div>
       </div>

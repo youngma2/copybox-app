@@ -3,10 +3,32 @@
 @tailwind utilities;
 
 @layer base {
+  /* 모바일 가로 흔들림(가로 오버플로) 방지 — 360px·390px에서 scrollWidth <= innerWidth */
+  html,
+  body,
+  #root {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
   html {
     scroll-behavior: smooth;
     -webkit-text-size-adjust: 100%;
     scroll-padding-top: 5.5rem;
+    overflow-x: hidden;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  img,
+  svg,
+  video,
+  canvas {
+    max-width: 100%;
   }
 
   body {
@@ -14,6 +36,7 @@
     font-feature-settings: 'tnum' 0;
     word-break: keep-all;
     overflow-wrap: break-word;
+    overflow-x: hidden;
   }
 
   ::selection {
@@ -45,7 +68,7 @@
 
 @layer components {
   .container-page {
-    @apply mx-auto w-full max-w-6xl px-5 sm:px-6 lg:px-8;
+    @apply mx-auto w-full min-w-0 max-w-6xl px-4 sm:px-6 lg:px-8;
   }
 
   .card {

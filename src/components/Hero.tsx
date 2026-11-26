@@ -1,6 +1,6 @@
 import { IconArrowRight, IconCheck, IconFile, IconPrinter, IconStore } from './Icons';
 
-const CHIPS = ['PDF 페이지 자동 인식', '실시간 견적 계산', '당일 출력·제본', '비회원도 주문 가능'];
+const CHIPS = ['A4 흑백 단면 50원', 'PDF 페이지 자동 인식', '내 주문 이력 보관', '비회원도 주문 가능'];
 
 const STEPS = [
   {
@@ -12,7 +12,7 @@ const STEPS = [
   {
     no: '02',
     title: '옵션 고르기',
-    body: '규격·흑백/컬러·단면/양면·제본을 고르면 금액이 바로 바뀝니다.',
+    body: 'A4·흑백/컬러·단면/양면·제본 3종을 고르면 금액이 바로 바뀝니다.',
     icon: <IconPrinter className="h-5 w-5" />,
   },
   {
@@ -95,28 +95,24 @@ export default function Hero() {
               <div className="mt-4 rounded-xl bg-brand-50/70 p-3">
                 <div className="flex items-center justify-between text-[13px]">
                   <span className="font-semibold text-ink-800">A4 · 흑백 · 양면</span>
-                  <span className="text-ink-600">45원/면</span>
+                  <span className="text-ink-600">40원/페이지</span>
                 </div>
                 <div className="mt-1.5 flex items-center justify-between text-[13px] text-ink-600">
-                  <span>24면 × 2부</span>
-                  <span className="num font-semibold text-ink-800">2,160원</span>
+                  <span>24페이지 × 2부</span>
+                  <span className="num font-semibold text-ink-800">1,920원</span>
                 </div>
               </div>
 
               <dl className="mt-3 space-y-2 text-[13px]">
                 <div className="flex justify-between">
-                  <dt className="text-ink-600">스프링 제본 × 2부</dt>
-                  <dd className="num font-semibold text-ink-800">6,000원</dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-ink-600">양면 할인</dt>
-                  <dd className="num font-semibold text-mint">-240원 반영</dd>
+                  <dt className="text-ink-600">스프링 제본 (1,500원~) × 2부</dt>
+                  <dd className="num font-semibold text-ink-800">3,000원</dd>
                 </div>
               </dl>
 
               <div className="mt-4 flex items-end justify-between border-t border-dashed border-ink-200 pt-3">
                 <span className="text-xs font-semibold text-ink-400">총 예상 금액</span>
-                <span className="num text-xl font-extrabold tracking-tight text-ink-900">8,160원</span>
+                <span className="num text-xl font-extrabold tracking-tight text-ink-900">4,920원</span>
               </div>
 
               <div className="mt-4 flex items-center gap-2 rounded-lg bg-ink-50 px-2.5 py-2 text-[10px] font-medium text-ink-400">

@@ -1,7 +1,5 @@
 import { formatDateTime, todayCode } from './format';
 import type { Quote } from './pricing';
-import type { DemoUser } from './auth';
-import { PROVIDER_LABEL } from './auth';
 
 export type PickupMethod = 'store' | 'delivery';
 
@@ -10,49 +8,31 @@ export const PICKUP_LABEL: Record<PickupMethod, string> = {
   delivery: '택배 · 퀵',
 };
 
-export interface OrderRecord {
-  orderNo: string;
-  submittedAt: string;
+export interface OrderFormValues {
   name: string;
   phone: string;
   pickup: PickupMethod;
   address: string;
   notes: string;
-  memberLabel: string;
-  fileName: string | null;
-  filePages: number | null;
-  autoDetected: boolean;
-  quote: Quote;
+  agree: boolean;
 }
 
-export function createOrderRecord(input: {
+export interface OrderDraft {
   name: string;
   phone: string;
   pickup: PickupMethod;
   address: string;
   notes: string;
-  user: DemoUser | null;
-  fileName: string | null;
-  filePages: number | null;
-  autoDetected: boolean;
   quote: Quote;
-}): OrderRecord {
-  const now = new Date();
+  fileName: string | null;
+  fileSize: number | null;
+  filePages: number | null;
+}
+
+/** 접수번호 — CB-YYMMDD-XXXXXX */
+export function createOrderNumber(date: Date = new Date()): string {
   const random = Math.floor(Math.random() * 900000) + 100000;
-  return {
-    orderNo: `CB-${todayCode(now)}-${random}`,
-    submittedAt: formatDateTime(now),
-    name: input.name.trim(),
-    phone: formatPhone(input.phone),
-    pickup: input.pickup,
-    address: input.address.trim(),
-    notes: input.notes.trim(),
-    memberLabel: input.user ? `${input.user.name} · ${PROVIDER_LABEL[input.user.provider]} 로그인` : '비회원 주문',
-    fileName: input.fileName,
-    filePages: input.filePages,
-    autoDetected: input.autoDetected,
-    quote: input.quote,
-  };
+  return `CB-${todayCode(date)}-${random}`;
 }
 
 export function formatPhone(raw: string): string {
@@ -69,7 +49,16 @@ export function formatPhone(raw: string): string {
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
 }
 
+export function phoneDigits(raw: string): string {
+  return raw.replace(/[^0-9]/g, '');
+}
+
 export function isValidPhone(raw: string): boolean {
-  const digits = raw.replace(/[^0-9]/g, '');
-  return /^0\d{8,10}$/.test(digits);
+  return /^0\d{8,10}$/.test(phoneDigits(raw));
+}
+
+export function formatOrderDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return formatDateTime(date);
 }
