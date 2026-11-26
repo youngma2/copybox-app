@@ -466,9 +466,14 @@ function ReceiptView({
           </div>
 
           <p className="mt-4 break-words rounded-lg bg-amber-50 px-3 py-2.5 text-[11px] leading-relaxed text-amber-800">
-            <strong className="font-bold">시안 모드</strong> — 실제 결제는 없습니다. 이 주문은{' '}
-            {storeMode === 'demo' ? '이 브라우저(localStorage)에 손님 ID 기준으로' : 'Supabase(RLS 보호)에'} 저장됐고,
-            접수번호와 손님 ID로 과거 이력을 다시 볼 수 있습니다.
+            {storeMode === 'demo' ? (
+              <>
+                <strong className="font-bold">시안 모드</strong> — 실제 결제는 없습니다. 이 주문은 이 브라우저
+                (localStorage)에 손님 ID 기준으로 저장됐고, 접수번호와 손님 ID로 과거 이력을 다시 볼 수 있습니다.
+              </>
+            ) : (
+              <>주문이 Supabase(RLS 보호)에 저장됐습니다. 결제는 매장 수령 시 진행되며, 이력은 이 계정에서 다시 볼 수 있습니다.</>
+            )}
             <br />
             <span className="num">고객 ID: {record.customerId}</span>
           </p>
