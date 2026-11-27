@@ -222,6 +222,14 @@ with sync_playwright() as p:
     check('이력 · 상품 표시', '명함' in history and '수입지' in history)
     page.screenshot(path=str(DOWNLOADS / 'copybox-product-tabs-desktop-history.png'))
 
+    # 같은 옵션으로 다시 주문 → 명함 페이지로 이동하며 옵션 복원
+    page.click(f'[data-testid="reorder-{card_order_no}"]')
+    page.wait_for_timeout(800)
+    check('다시 주문 · 해당 상품(명함) 페이지로 이동', page.is_visible('[data-testid=product-page-card]'))
+    check('다시 주문 · 옵션 복원 안내', page.is_visible('[data-testid=reorder-hint]'))
+    check('다시 주문 · 수입지 유지', page.get_attribute('[data-testid=card-paper-imported]', 'aria-pressed') == 'true')
+    check('다시 주문 · 400매 유지 = 30,000원', total(page) == 30000, f'{total(page)}원')
+
     # --- 관리자 탭 유지 ---
     page.click('[data-testid=tab-admin]')
     page.wait_for_selector('[data-testid=admin-order]', timeout=8000)
