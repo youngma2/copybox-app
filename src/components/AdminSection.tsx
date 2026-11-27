@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Review } from '../lib/storage/types';
-import type { Customer, OrderWithCustomer, StatusHistory } from '../lib/storage/types';
+import type { CardProofLog, CardProofUploadInput, Customer, OrderWithCustomer, StatusHistory } from '../lib/storage/types';
 import type { OrderStatus } from '../config/status';
 import AdminOrders from './admin/AdminOrders';
 import AdminCustomers from './admin/AdminCustomers';
@@ -20,6 +20,8 @@ interface AdminSectionProps {
   onConfirmPayment: (orderId: string) => void;
   onAddPhoto: (orderId: string, dataUrl: string) => Promise<void>;
   onRemovePhoto: (orderId: string, photoId: string) => Promise<void>;
+  proofLogs: CardProofLog[];
+  onUploadProof: (orderId: string, input: CardProofUploadInput) => Promise<void>;
   onRefresh: () => void;
   onSeed: () => void;
   onSetReviewVisibility: (reviewId: string, visible: boolean) => void;
@@ -48,6 +50,8 @@ export default function AdminSection({
   onConfirmPayment,
   onAddPhoto,
   onRemovePhoto,
+  proofLogs,
+  onUploadProof,
   onRefresh,
   onSeed,
   onSetReviewVisibility,
@@ -119,6 +123,8 @@ export default function AdminSection({
             onConfirmPayment={onConfirmPayment}
             onAddPhoto={onAddPhoto}
             onRemovePhoto={onRemovePhoto}
+            proofLogs={proofLogs}
+            onUploadProof={onUploadProof}
             onRefresh={onRefresh}
             onSeed={onSeed}
             onNotice={onNotice}

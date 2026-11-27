@@ -3,13 +3,15 @@ import { won } from '../lib/format';
 import { formatOrderDate, formatPhone, PICKUP_LABEL } from '../lib/order';
 import { PROVIDER_LABEL } from '../lib/auth';
 import { PAYMENT_STATUS_LABEL } from '../config/status';
+import { CARD_PROOF } from '../config/business-card';
 import { PDF_RETENTION_DAYS, paymentRecordUntil } from '../config/delivery';
-import type { Customer, Order, Review, StoreMode } from '../lib/storage/types';
+import type { CardProofLog, Customer, Order, Review, StoreMode } from '../lib/storage/types';
 import { describeOrderOptions, formatDateLabel } from '../lib/describe';
 import StatusBadge, { PaymentBadge } from './StatusBadge';
 import PickupPhotos from './PickupPhotos';
 import OrderMessages from './OrderMessages';
 import { ReviewForm, Stars } from './Reviews';
+import { CardProofCustomer } from './CardProof';
 import { IconArrowRight, IconFile, IconRefresh, IconShield, IconUser } from './Icons';
 
 interface HistorySectionProps {
@@ -24,6 +26,10 @@ interface HistorySectionProps {
   onNewOrder: () => void;
   onDeleteAccount: () => Promise<void>;
   onSaveReview: (order: Order, input: { rating: number; body: string; photoUrl: string | null }) => Promise<void>;
+  proofLogs: CardProofLog[];
+  busyProofOrderId: string | null;
+  onRequestRevision: (orderId: string, body: string) => Promise<void>;
+  onConfirmProof: (orderId: string) => Promise<void>;
   onNotice: (message: string) => void;
 }
 
@@ -39,6 +45,10 @@ export default function HistorySection({
   onNewOrder,
   onDeleteAccount,
   onSaveReview,
+  proofLogs,
+  busyProofOrderId,
+  onRequestRevision,
+  onConfirmProof,
   onNotice,
 }: HistorySectionProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -303,17 +313,38 @@ export default function HistorySection({
                         </div>
                       </dl>
 
+                      {order.product === 'card' && (
+                        <CardProofCustomer
+                          order={order}
+                          logs={proofLogs.filter((log) => log.orderId === order.id)}
+                          busy={busyProofOrderId === order.id}
+                          onRequestRevision={onRequestRevision}
+                          onConfirm={onConfirmProof}
+                        />
+                      )}
+
                       <div className="grid gap-2 sm:grid-cols-2">
                         <PickupPhotos photos={order.pickupPhotos} editable={false} />
                         <div className="rounded-lg bg-ink-50/70 px-3 py-2 text-[10px] leading-relaxed text-ink-500">
                           <p className="text-[11px] font-semibold text-ink-400">진행 단계</p>
-                          <p className="mt-1 text-ink-700">
-                            접수됨 → 인쇄중 → 완료 → <strong className="font-bold">출고</strong> → 배송 완료
-                          </p>
-                          <p className="mt-1">
-                            출고는 택배 접수 완료 또는 방문 수령 준비 완료를 뜻합니다.
-                            {order.deliverySpeed === 'eco' ? ' (여유특가 · 영업일 4일 이내)' : ' (일반 · 영업일 1~2일)'}
-                          </p>
+                          {order.product === 'card' ? (
+                            <>
+                              <p className="mt-1 text-ink-700">
+                                시안 확인 요청 → <strong className="font-bold">시안 확정</strong> → 인쇄중 → 완료 → <strong className="font-bold">출고</strong>
+                              </p>
+                              <p className="mt-1">시안 확정 후 인쇄가 시작되어 {CARD_PROOF.leadLabel}입니다.</p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="mt-1 text-ink-700">
+                                접수됨 → 인쇄중 → 완료 → <strong className="font-bold">출고</strong> → 배송 완료
+                              </p>
+                              <p className="mt-1">
+                                출고는 택배 접수 완료 또는 방문 수령 준비 완료를 뜻합니다.
+                                {order.deliverySpeed === 'eco' ? ' (여유특가 · 영업일 4일 이내)' : ' (일반 · 영업일 1~2일)'}
+                              </p>
+                            </>
+                          )}
                         </div>
                       </div>
 

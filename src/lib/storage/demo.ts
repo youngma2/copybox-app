@@ -12,12 +12,24 @@
 import { DEMO_USER_NAME, DEMO_USER_PHONE, type AccountProvider } from '../auth';
 import { createOrderNumber, phoneDigits } from '../order';
 import { calculateQuote } from '../pricing';
-import { dueShipDate, pdfPurgeDate } from '../../config/delivery';
+import { cardDueShipDate, dueShipDate, pdfPurgeDate } from '../../config/delivery';
 import type { OrderStatus, PaymentMethod } from '../../config/status';
-import type { CardPaper } from '../../config/business-card';
+import {
+  CARD_PROOF,
+  EMPTY_CARD_INFO,
+  isCardPrintMode,
+  isCardPaper,
+  type CardInfo,
+  type CardPaper,
+  type CardPrintMode,
+  type CardProofStatus,
+} from '../../config/business-card';
 import { BINDING_OPTIONS } from '../../config/pricing';
 import {
   StoreError,
+  type CardProofLog,
+  type CardProofLogInput,
+  type CardProofUploadInput,
   type CopyboxStore,
   type CreateOrderInput,
   type Customer,
@@ -72,6 +84,12 @@ function daysAgo(days: number, hour = 11, minute = 20): Date {
   return date;
 }
 
+/** 시안 모드에서 쓰는 예시 시안 이미지 (실제 주문 시안이 아니라 화면 확인용 그림) */
+function demoProofSvg(name: string, version: number): string {
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='520' height='300' viewBox='0 0 520 300'><rect width='520' height='300' fill='#ffffff'/><rect x='0' y='0' width='520' height='300' fill='none' stroke='#d9dee8'/><text x='36' y='58' font-family='sans-serif' font-size='13' fill='#8a94a6'>COPYBOX 명함 시안 v${version} · 예시</text><text x='36' y='120' font-family='sans-serif' font-size='30' font-weight='700' fill='#111827'>${name}</text><text x='36' y='150' font-family='sans-serif' font-size='14' fill='#4b5563'>대표 · 카피박스</text><text x='36' y='200' font-family='sans-serif' font-size='13' fill='#374151'>010-0000-0000</text><text x='36' y='224' font-family='sans-serif' font-size='13' fill='#374151'>hong@example.com</text><text x='36' y='262' font-family='sans-serif' font-size='12' fill='#9ca3af'>작업 92×52mm · 재단 90×50mm · CMYK</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
 /* ------------------------------------------------------------------ */
 /* 데모 DB                                                             */
 /* ------------------------------------------------------------------ */
@@ -79,30 +97,33 @@ function daysAgo(days: number, hour = 11, minute = 20): Date {
 const DEMO_KEY = 'copybox.v3.db';
 
 interface DemoDb {
-  version: 3;
+  version: 4;
   customers: Customer[];
   orders: Order[];
   statusHistory: StatusHistory[];
   messages: OrderMessage[];
   reviews: Review[];
+  /** 명함 시안 타임라인 — 덮어쓰지 않고 쌓기만 합니다. */
+  cardProofLogs: CardProofLog[];
   sessionCustomerId: string | null;
 }
 
 function emptyDb(): DemoDb {
   return {
-    version: 3,
+    version: 4,
     customers: [],
     orders: [],
     statusHistory: [],
     messages: [],
     reviews: [],
+    cardProofLogs: [],
     sessionCustomerId: null,
   };
 }
 
 let memoryDb: DemoDb | null = null;
 
-/** v2 → v3 마이그레이션: 새 컬럼(입금·출고 속도·명함·택배비)을 채웁니다. */
+/** v2/v3 → v4 마이그레이션: 명함 지류·면도수·시안 상태 컬럼을 채웁니다. */
 function migrateOrder(raw: Partial<Order> & Record<string, unknown>): Order {
   const createdAt = String(raw.createdAt ?? nowIso());
   const binding = (raw.binding as Order['binding']) ?? 'none';
@@ -114,21 +135,37 @@ function migrateOrder(raw: Partial<Order> & Record<string, unknown>): Order {
   const bindingCost = bindingOption.price * Number(raw.copies ?? 1);
   const status = (raw.status as OrderStatus) ?? 'received';
   const shippedAt = ['shipped', 'delivered'].includes(status) ? new Date(createdAt) : null;
+  const product = (raw.product as Order['product']) ?? 'print';
+  const paper = isCardPaper(raw.cardPaper) ? (raw.cardPaper as CardPaper) : null;
+  const cardPrint = isCardPrintMode(raw.cardPrint) ? (raw.cardPrint as CardPrintMode) : null;
   const order: Order = {
     id: String(raw.id ?? uid()),
     orderNumber: String(raw.orderNumber ?? createOrderNumber()),
     customerId: String(raw.customerId ?? ''),
     status,
-    product: (raw.product as Order['product']) ?? 'print',
+    product,
     paperSize: 'A4',
     colorMode: (raw.colorMode as Order['colorMode']) ?? 'mono',
     sides: (raw.sides as Order['sides']) ?? 'single',
     pages: Number(raw.pages ?? 1),
     copies: Number(raw.copies ?? 1),
     binding,
-    cardPaper: (raw.cardPaper as CardPaper | null) ?? null,
+    cardPaper: product === 'card' ? paper ?? 'snow250' : paper,
+    cardPrint: product === 'card' ? cardPrint ?? 'single4' : cardPrint,
     cardQty: (raw.cardQty as number | null) ?? null,
     cardText: (raw.cardText as string | null) ?? null,
+    cardInfo: (raw.cardInfo as CardInfo | null) ?? null,
+    // 예전에 인쇄가 진행된 명함 주문은 시안 확인 단계가 없었으므로 확정으로 둡니다.
+    proofStatus:
+      (raw.proofStatus as CardProofStatus) ??
+      (product === 'card'
+        ? ['printing', 'done', 'shipped', 'delivered'].includes(status)
+          ? 'confirmed'
+          : 'not_requested'
+        : 'confirmed'),
+    proofRevisionCount: Number(raw.proofRevisionCount ?? 0),
+    proofConfirmedAt: (raw.proofConfirmedAt as string | null) ?? null,
+    proofConfirmedVersion: (raw.proofConfirmedVersion as number | null) ?? null,
     pageUnitPrice: Number(raw.pageUnitPrice ?? 0),
     bindingUnitPrice: Number(raw.bindingUnitPrice ?? bindingOption.price),
     printCost,
@@ -166,12 +203,15 @@ function loadDb(): DemoDb {
       };
       if (parsed && Array.isArray(parsed.customers) && Array.isArray(parsed.orders)) {
         memoryDb = {
-          version: 3,
+          version: 4,
           customers: parsed.customers as Customer[],
           orders: parsed.orders.map(migrateOrder),
           statusHistory: Array.isArray(parsed.statusHistory) ? (parsed.statusHistory as StatusHistory[]) : [],
           messages: Array.isArray(parsed.messages) ? (parsed.messages as OrderMessage[]) : [],
           reviews: Array.isArray(parsed.reviews) ? (parsed.reviews as Review[]) : [],
+          cardProofLogs: Array.isArray((parsed as Partial<DemoDb>).cardProofLogs)
+            ? ((parsed as Partial<DemoDb>).cardProofLogs as CardProofLog[])
+            : [],
           sessionCustomerId: parsed.sessionCustomerId ?? null,
         };
         return memoryDb;
@@ -235,8 +275,14 @@ function buildOrder(
     copies: quote.copies,
     binding: quote.binding.id,
     cardPaper: quote.product === 'card' ? quote.cardPaper : null,
+    cardPrint: quote.product === 'card' ? quote.cardPrint : null,
     cardQty: quote.product === 'card' ? quote.cardQty : null,
     cardText: quote.product === 'card' ? quote.cardText.trim() || null : null,
+    cardInfo: quote.product === 'card' ? normalizeCardInfo(quote.cardInfo) : null,
+    proofStatus: quote.product === 'card' ? 'not_requested' : 'confirmed',
+    proofRevisionCount: 0,
+    proofConfirmedAt: quote.product === 'card' ? null : createdAt,
+    proofConfirmedVersion: null,
     pageUnitPrice: quote.unitPrice,
     bindingUnitPrice: quote.binding.price,
     printCost: quote.printCost,
@@ -284,13 +330,98 @@ function buildOrder(
     note: '결제 완료 · 주문 접수',
     createdAt,
   });
+  if (quote.product === 'card') {
+    // ⑦ 주문 메모·명함 정보를 시안 타임라인의 첫 기록으로 남깁니다(덮어쓰지 않음).
+    db.cardProofLogs.push({
+      id: uid(),
+      orderId: order.id,
+      customerId: customer.id,
+      kind: 'note',
+      version: null,
+      body: [
+        quote.cardText.trim() ? `명함 문구: ${quote.cardText.trim()}` : null,
+        order.cardInfo ? `명함 정보: ${formatCardInfo(order.cardInfo)}` : null,
+        order.customerRequest ? `주문 메모: ${order.customerRequest}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      proofUrl: null,
+      proofFileName: null,
+      proofFileType: null,
+      actor: 'customer',
+      createdAt,
+    });
+  }
   return order;
+}
+
+function normalizeCardInfo(info: CardInfo | null | undefined): CardInfo | null {
+  if (!info) return null;
+  const trimmed: CardInfo = {
+    name: info.name?.trim() ?? '',
+    title: info.title?.trim() ?? '',
+    company: info.company?.trim() ?? '',
+    phone: info.phone?.trim() ?? '',
+    email: info.email?.trim() ?? '',
+    address: info.address?.trim() ?? '',
+  };
+  return Object.values(trimmed).some(Boolean) ? trimmed : null;
+}
+
+/** "성함 홍길동 · 직함 대표 · 회사 카피박스 · 연락처 010-0000-0000 …" */
+function formatCardInfo(info: CardInfo): string {
+  return [
+    info.name ? `성함 ${info.name}` : null,
+    info.title ? `직함 ${info.title}` : null,
+    info.company ? `회사 ${info.company}` : null,
+    info.phone ? `연락처 ${info.phone}` : null,
+    info.email ? `이메일 ${info.email}` : null,
+    info.address ? `주소 ${info.address}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function latestProofVersion(db: DemoDb, orderId: string): number {
+  return db.cardProofLogs
+    .filter((log) => log.orderId === orderId && log.kind === 'proof')
+    .reduce((max, log) => Math.max(max, log.version ?? 0), 0);
+}
+
+function proofLog(db: DemoDb, orderId: string, input: CardProofLogInput, createdAt: string): CardProofLog {
+  const order = db.orders.find((row) => row.id === orderId);
+  if (!order) throw new StoreError('해당 주문을 찾을 수 없습니다.');
+  const log: CardProofLog = {
+    id: uid(),
+    orderId,
+    customerId: order.customerId,
+    kind: input.kind,
+    version: input.version ?? null,
+    body: input.body ?? null,
+    proofUrl: input.proofUrl ?? null,
+    proofFileName: input.proofFileName ?? null,
+    proofFileType: input.proofFileType ?? null,
+    actor: input.actor,
+    createdAt,
+  };
+  db.cardProofLogs.push(log);
+  return log;
+}
+
+/** 시안 확정 전에는 카드 주문을 인쇄중 이후로 넘기지 않습니다. */
+function assertCardProofConfirmed(order: Order, status: OrderStatus): void {
+  if (order.product !== 'card') return;
+  if (status === 'received' || status === 'canceled') return;
+  if (order.proofStatus !== 'confirmed') {
+    throw new StoreError('명함 주문은 고객이 [시안 확정(OK)]를 누른 뒤에 인쇄를 시작할 수 있습니다.');
+  }
 }
 
 function updateDemoStatus(db: DemoDb, orderId: string, status: OrderStatus): void {
   const order = db.orders.find((row) => row.id === orderId);
   if (!order) throw new StoreError('해당 주문을 찾을 수 없습니다.');
   if (order.status === status) return;
+  assertCardProofConfirmed(order, status);
   const createdAt = nowIso();
   const previous = order.status;
   order.status = status;
@@ -339,12 +470,21 @@ const demoStore: CopyboxStore = {
     saveDb(db);
   },
 
-  async ensureCustomer({ name, phone, provider }) {
+  async ensureCustomer({ name, phone, provider, email }) {
     const db = loadDb();
     const existing = findCustomerInDb(db, { name, phone });
     if (existing) {
+      let touched = false;
       if (provider !== 'guest' && existing.provider !== provider) {
         existing.provider = provider;
+        touched = true;
+      }
+      const trimmedEmail = email?.trim() ?? '';
+      if (trimmedEmail && existing.email !== trimmedEmail) {
+        existing.email = trimmedEmail;
+        touched = true;
+      }
+      if (touched) {
         existing.updatedAt = nowIso();
         saveDb(db);
       }
@@ -356,7 +496,7 @@ const demoStore: CopyboxStore = {
       authUserId: null,
       name: normalizeName(name),
       phone: phoneDigits(phone),
-      email: null,
+      email: email?.trim() || null,
       provider,
       createdAt,
       updatedAt: createdAt,
@@ -566,6 +706,122 @@ const demoStore: CopyboxStore = {
     return clone(sortByCreatedDesc(db.statusHistory));
   },
 
+  async listCardProofLogs(filter) {
+    const db = loadDb();
+    const rows = db.cardProofLogs
+      .filter((log) => !filter?.orderId || log.orderId === filter.orderId)
+      .filter((log) => !filter?.customerId || log.customerId === filter.customerId);
+    return clone([...rows].sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
+  },
+
+  async uploadCardProof(orderId, input: CardProofUploadInput) {
+    const db = loadDb();
+    const order = db.orders.find((row) => row.id === orderId);
+    if (!order) throw new StoreError('해당 주문을 찾을 수 없습니다.');
+    if (order.product !== 'card') throw new StoreError('명함 주문에만 시안을 올릴 수 있습니다.');
+    if (order.proofStatus === 'confirmed') {
+      throw new StoreError('고객이 시안을 확정한 주문에는 새 시안을 올릴 수 없습니다. 새 주문으로 진행해 주세요.');
+    }
+    const createdAt = nowIso();
+    const version = latestProofVersion(db, orderId) + 1;
+    const log = proofLog(
+      db,
+      orderId,
+      {
+        orderId,
+        kind: 'proof',
+        version,
+        body: `${version}차 시안 업로드`,
+        proofUrl: input.fileUrl,
+        proofFileName: input.fileName,
+        proofFileType: input.fileType,
+        actor: 'admin',
+      },
+      createdAt,
+    );
+    order.proofStatus = 'requested';
+    order.updatedAt = createdAt;
+    saveDb(db);
+    return clone(log);
+  },
+
+  async requestCardRevision(orderId, body) {
+    const db = loadDb();
+    const order = db.orders.find((row) => row.id === orderId);
+    if (!order) throw new StoreError('해당 주문을 찾을 수 없습니다.');
+    if (order.product !== 'card') throw new StoreError('명함 주문에서만 시안 수정을 요청할 수 있습니다.');
+    if (order.proofStatus === 'confirmed') {
+      throw new StoreError('이미 시안을 확정한 주문입니다. 확정 후에는 수정·취소·환불이 불가합니다.');
+    }
+    if (order.proofStatus === 'not_requested') {
+      throw new StoreError('아직 시안이 올라오지 않았습니다. 사장님이 시안을 보내 드린 뒤 요청해 주세요.');
+    }
+    const trimmed = body.trim();
+    if (!trimmed) throw new StoreError('수정하실 내용을 적어 주세요.');
+    if (order.proofRevisionCount >= CARD_PROOF.maxRevisions) {
+      throw new StoreError(`시안 수정은 최대 ${CARD_PROOF.maxRevisions}회까지만 가능합니다 (${CARD_PROOF.maxRevisions}회 초과 수정 불가).`);
+    }
+    const createdAt = nowIso();
+    const version = latestProofVersion(db, orderId) || null;
+    const log = proofLog(
+      db,
+      orderId,
+      {
+        orderId,
+        kind: 'revision',
+        version,
+        body: trimmed,
+        actor: 'customer',
+      },
+      createdAt,
+    );
+    order.proofRevisionCount += 1;
+    order.proofStatus = 'revision_requested';
+    order.updatedAt = createdAt;
+    saveDb(db);
+    return clone(log);
+  },
+
+  async confirmCardProof(orderId) {
+    const db = loadDb();
+    const order = db.orders.find((row) => row.id === orderId);
+    if (!order) throw new StoreError('해당 주문을 찾을 수 없습니다.');
+    if (order.product !== 'card') throw new StoreError('명함 주문에서만 시안을 확정할 수 있습니다.');
+    if (order.proofStatus === 'confirmed') {
+      throw new StoreError('이미 시안을 확정한 주문입니다.');
+    }
+    const version = latestProofVersion(db, orderId);
+    if (version === 0) {
+      throw new StoreError('아직 확인하실 시안이 없습니다. 사장님이 시안을 올린 뒤 확정해 주세요.');
+    }
+    const createdAt = nowIso();
+    const confirmedProof = db.cardProofLogs.find(
+      (row) => row.orderId === orderId && row.kind === 'proof' && row.version === version,
+    );
+    const log = proofLog(
+      db,
+      orderId,
+      {
+        orderId,
+        kind: 'confirm',
+        version,
+        body: `고객 시안 확정 (v${version})`,
+        proofUrl: confirmedProof?.proofUrl ?? null,
+        proofFileName: confirmedProof?.proofFileName ?? null,
+        proofFileType: confirmedProof?.proofFileType ?? null,
+        actor: 'customer',
+      },
+      createdAt,
+    );
+    order.proofStatus = 'confirmed';
+    order.proofConfirmedAt = createdAt;
+    order.proofConfirmedVersion = version;
+    order.dueShipDate = isoDate(cardDueShipDate(createdAt, CARD_PROOF.leadBusinessDays));
+    order.updatedAt = createdAt;
+    saveDb(db);
+    return clone(log);
+  },
+
   async deleteMyData(customerId) {
     const db = loadDb();
     const customer = db.customers.find((row) => row.id === customerId);
@@ -581,9 +837,18 @@ const demoStore: CopyboxStore = {
         order.address = null;
         order.customerRequest = null;
         order.cardText = null;
+        order.cardInfo = null;
         order.updatedAt = now;
       });
     db.messages = db.messages.filter((message) => message.customerId !== customerId);
+    db.cardProofLogs
+      .filter((log) => log.customerId === customerId)
+      .forEach((log) => {
+        // 시안 파일에도 성함·연락처가 들어가므로 탈퇴 시 파기하고, 기록(종류·시각·버전)만 남깁니다.
+        log.proofUrl = null;
+        log.proofFileName = null;
+        log.body = log.kind === 'note' || log.kind === 'revision' ? '(탈퇴로 삭제됨)' : log.body;
+      });
     db.reviews
       .filter((review) => review.customerId === customerId)
       .forEach((review) => {
@@ -633,8 +898,10 @@ const demoStore: CopyboxStore = {
           pages: 24,
           copies: 2,
           binding: 'coil',
-          cardPaper: 'coating',
+          cardPaper: 'snow250',
+          cardPrint: 'single4',
           cardUnits: 1,
+          cardInfo: EMPTY_CARD_INFO,
           cardText: '',
           pickup: 'store',
           deliverySpeed: 'normal',
@@ -657,8 +924,10 @@ const demoStore: CopyboxStore = {
           pages: 18,
           copies: 1,
           binding: 'none',
-          cardPaper: 'coating',
+          cardPaper: 'snow250',
+          cardPrint: 'single4',
           cardUnits: 1,
+          cardInfo: EMPTY_CARD_INFO,
           cardText: '',
           pickup: 'delivery',
           deliverySpeed: 'normal',
@@ -682,8 +951,10 @@ const demoStore: CopyboxStore = {
           pages: 62,
           copies: 3,
           binding: 'wire',
-          cardPaper: 'coating',
+          cardPaper: 'snow250',
+          cardPrint: 'single4',
           cardUnits: 1,
+          cardInfo: EMPTY_CARD_INFO,
           cardText: '',
           pickup: 'delivery',
           deliverySpeed: 'eco',
@@ -707,9 +978,18 @@ const demoStore: CopyboxStore = {
           pages: 1,
           copies: 1,
           binding: 'none',
-          cardPaper: 'coating',
+          cardPaper: 'banu250',
+          cardPrint: 'double4',
           cardUnits: 1,
-          cardText: '카피박스 · 김대표 · 010-1234-5678\n일산 복사·출력·제본 전문',
+          cardInfo: {
+            name: '박지훈',
+            title: '실장',
+            company: '한결설계',
+            phone: '010-4567-8901',
+            email: 'jihoon@example.com',
+            address: '경기도 고양시 일산동구 중앙로 100',
+          },
+          cardText: '앞면은 회사 로고와 이름, 뒷면은 계좌와 연락처를 넣고 싶어요.',
           pickup: 'store',
           deliverySpeed: 'normal',
         },
@@ -731,8 +1011,10 @@ const demoStore: CopyboxStore = {
           pages: 60,
           copies: 1,
           binding: 'coil',
-          cardPaper: 'coating',
+          cardPaper: 'snow250',
+          cardPrint: 'single4',
           cardUnits: 1,
+          cardInfo: EMPTY_CARD_INFO,
           cardText: '',
           pickup: 'store',
           deliverySpeed: 'eco',
@@ -818,6 +1100,29 @@ const demoStore: CopyboxStore = {
           createdAt: new Date(seed.createdAt.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString(),
         });
       }
+    }
+
+    // 명함 예시 주문에는 사장님이 1차 시안을 올려 둔 상태로 시작합니다 (고객 확정 전).
+    const cardSeed = db.orders.find((order) => order.product === 'card');
+    if (cardSeed && cardSeed.proofStatus === 'not_requested') {
+      const at = new Date(new Date(cardSeed.createdAt).getTime() + 3 * 60 * 60 * 1000).toISOString();
+      proofLog(
+        db,
+        cardSeed.id,
+        {
+          orderId: cardSeed.id,
+          kind: 'proof',
+          version: 1,
+          body: '1차 시안 업로드',
+          proofUrl: demoProofSvg(cardSeed.cardInfo?.name ?? '홍길동', 1),
+          proofFileName: '시안_v1.svg',
+          proofFileType: 'image',
+          actor: 'admin',
+        },
+        at,
+      );
+      cardSeed.proofStatus = 'requested';
+      cardSeed.updatedAt = at;
     }
 
     saveDb(db);

@@ -6,6 +6,8 @@ const DISMISS_KEY = 'copybox.notice.dismissUntil';
 
 interface NoticePopupProps {
   onEcoQuote: () => void;
+  /** 여유 제작 특가는 A4 출력 전용 — 명함 페이지에서는 안내하지 않습니다. */
+  ecoAvailable?: boolean;
 }
 
 function endOfToday(): number {
@@ -14,7 +16,7 @@ function endOfToday(): number {
   return date.getTime();
 }
 
-export default function NoticePopup({ onEcoQuote }: NoticePopupProps) {
+export default function NoticePopup({ onEcoQuote, ecoAvailable = true }: NoticePopupProps) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -91,30 +93,49 @@ export default function NoticePopup({ onEcoQuote }: NoticePopupProps) {
         </div>
 
         <div className="px-5 py-5">
-          <div className="rounded-2xl border border-mint/30 bg-mint/5 px-4 py-3.5">
-            <p className="text-[13px] font-extrabold text-mint">{ANNOUNCEMENT.ecoTitle}</p>
-            <p className="mt-1 break-words text-[11.5px] leading-relaxed text-ink-600">{ANNOUNCEMENT.ecoBody}</p>
-            <p className="mt-1.5 text-[10px] leading-relaxed text-ink-400">
-              배송 도착일이 아닌 출고(택배 접수 완료 · 방문수령 준비 완료) 기준입니다.
-            </p>
-          </div>
+          {ecoAvailable ? (
+            <>
+              <div className="rounded-2xl border border-mint/30 bg-mint/5 px-4 py-3.5">
+                <p className="text-[13px] font-extrabold text-mint">{ANNOUNCEMENT.ecoTitle}</p>
+                <p className="mt-1 break-words text-[11.5px] leading-relaxed text-ink-600">{ANNOUNCEMENT.ecoBody}</p>
+                <p className="mt-1.5 text-[10px] leading-relaxed text-ink-400">
+                  배송 도착일이 아닌 출고(택배 접수 완료 · 방문수령 준비 완료) 기준입니다. A4 출력 전용 특가입니다.
+                </p>
+              </div>
 
-          <div className="mt-3 grid gap-2">
-            <button
-              type="button"
-              data-testid="notice-eco-cta"
-              onClick={() => {
-                close();
-                onEcoQuote();
-              }}
-              className="btn-primary w-full !bg-mint hover:!bg-mint/90"
-            >
-              {ANNOUNCEMENT.ecoCta}
-            </button>
-            <button type="button" data-testid="notice-close" onClick={close} className="btn-ghost !py-2.5 !text-[13px]">
-              그냥 둘러보기
-            </button>
-          </div>
+              <div className="mt-3 grid gap-2">
+                <button
+                  type="button"
+                  data-testid="notice-eco-cta"
+                  onClick={() => {
+                    close();
+                    onEcoQuote();
+                  }}
+                  className="btn-primary w-full !bg-mint hover:!bg-mint/90"
+                >
+                  {ANNOUNCEMENT.ecoCta}
+                </button>
+                <button type="button" data-testid="notice-close" onClick={close} className="btn-ghost !py-2.5 !text-[13px]">
+                  그냥 둘러보기
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3.5">
+                <p className="text-[13px] font-extrabold text-ink-900">명함은 시안 확정 후 인쇄합니다</p>
+                <p className="mt-1 break-words text-[11.5px] leading-relaxed text-ink-600">
+                  시안 확인 요청 → 고객 [시안 확정(OK)] → 인쇄·재단 후 영업일 2~3일 내 출고. 시안 수정은 최대 2회까지 가능합니다.
+                </p>
+              </div>
+
+              <div className="mt-3 grid gap-2">
+                <button type="button" data-testid="notice-close" onClick={close} className="btn-ghost !py-3 !text-[13px]">
+                  그냥 둘러보기
+                </button>
+              </div>
+            </>
+          )}
 
           <div className="mt-3 flex items-center justify-between gap-2 border-t border-ink-100 pt-3">
             <p className="break-words text-[10px] text-ink-400">{STORE.isSample ? '매장 정보는 시안 샘플입니다.' : STORE.name}</p>

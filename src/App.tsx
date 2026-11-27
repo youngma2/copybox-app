@@ -26,6 +26,7 @@ import {
   type StatusHistory,
 } from './lib/storage';
 import type { UploadedFileMeta } from './components/Uploader';
+import type { CardProofLog, CardProofUploadInput } from './lib/storage/types';
 import { IconArrowRight } from './components/Icons';
 
 function errorMessage(error: unknown): string {
@@ -47,6 +48,8 @@ export default function App() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [statusHistory, setStatusHistory] = useState<StatusHistory[]>([]);
   const [adminReviews, setAdminReviews] = useState<Review[]>([]);
+  const [proofLogs, setProofLogs] = useState<CardProofLog[]>([]);
+  const [busyProofOrderId, setBusyProofOrderId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const [reorderSource, setReorderSource] = useState<string | null>(null);
@@ -82,12 +85,14 @@ export default function App() {
     async (customerId: string) => {
       setLoading(true);
       try {
-        const [rows, reviews] = await Promise.all([
+        const [rows, reviews, logs] = await Promise.all([
           store.listOrdersByCustomer(customerId),
           store.listReviewsForCustomer(customerId),
+          store.listCardProofLogs({ customerId }),
         ]);
         setOrders(rows);
         setMyReviews(reviews);
+        setProofLogs(logs);
       } catch (error) {
         showToast(errorMessage(error));
       } finally {
@@ -108,16 +113,18 @@ export default function App() {
   const refreshAdmin = useCallback(async () => {
     setLoading(true);
     try {
-      const [all, customerRows, historyRows, reviewRows] = await Promise.all([
+      const [all, customerRows, historyRows, reviewRows, logs] = await Promise.all([
         store.listAllOrders(),
         store.listCustomers(),
         store.listStatusHistory(),
         store.listReviews(),
+        store.listCardProofLogs(),
       ]);
       setAllOrders(all);
       setCustomers(customerRows);
       setStatusHistory(historyRows);
       setAdminReviews(reviewRows);
+      setProofLogs(logs);
     } catch (error) {
       showToast(errorMessage(error));
     } finally {
@@ -135,9 +142,11 @@ export default function App() {
           setCustomer(session);
           const rows = await store.listOrdersByCustomer(session.id);
           const reviews = await store.listReviewsForCustomer(session.id);
+          const logs = await store.listCardProofLogs({ customerId: session.id });
           if (alive) {
             setOrders(rows);
             setMyReviews(reviews);
+            setProofLogs(logs);
           }
         }
         await refreshPublicReviews();
@@ -185,8 +194,9 @@ export default function App() {
   }
 
   function handleEcoQuote() {
-    const target: ProductKind = isProductView(view) ? view : 'print';
-    if (!isProductView(view)) handleNavigate(target);
+    // 여유 제작 특가는 A4 출력 전용입니다. 명함에서는 A4 페이지로 안내합니다.
+    const target: ProductKind = 'print';
+    if (view !== target) handleNavigate(target);
     patchOptions({ deliverySpeed: 'eco' });
     setReceipt(null);
     showToast('🌿 여유 제작 특가를 선택했어요. 인쇄비 10%가 자동 할인됩니다.');
@@ -233,8 +243,22 @@ export default function App() {
   async function handleOrder(values: OrderFormValues) {
     let owner = customer;
     if (!owner) {
-      owner = await store.ensureCustomer({ name: values.name, phone: values.phone, provider: 'guest' });
+      owner = await store.ensureCustomer({
+        name: values.name,
+        phone: values.phone,
+        email: values.email,
+        provider: 'guest',
+      });
       await store.startSession(owner.id);
+      setCustomer(owner);
+    }
+    if (owner.email === null && values.email.trim()) {
+      owner = await store.ensureCustomer({
+        name: owner.name,
+        phone: owner.phone,
+        email: values.email,
+        provider: owner.provider,
+      });
       setCustomer(owner);
     }
     const order = await store.createOrder({
@@ -270,7 +294,9 @@ export default function App() {
       pages: order.pages,
       copies: order.copies,
       binding: order.binding,
-      cardPaper: order.cardPaper ?? 'coating',
+      cardPaper: order.cardPaper ?? 'snow250',
+      cardPrint: order.cardPrint ?? 'single4',
+      cardInfo: order.cardInfo ?? DEFAULT_QUOTE_INPUT.cardInfo,
       cardUnits: order.cardQty ? Math.max(1, Math.round(order.cardQty / 200)) : 1,
       cardText: order.cardText ?? '',
       pickup: order.pickup,
@@ -384,6 +410,51 @@ export default function App() {
     showToast('탈퇴 처리했어요. 이름·연락처·주소·파일은 파기되고 결제 기록만 비식별로 보관됩니다.');
   }
 
+  async function handleUploadProof(orderId: string, input: CardProofUploadInput) {
+    setBusyProofOrderId(orderId);
+    try {
+      await store.uploadCardProof(orderId, input);
+      await refreshAdmin();
+      if (customer) await refreshHistory(customer.id);
+      showToast('시안을 올렸어요. 고객에게 [안내 문구 복사]나 [고객 메일 쓰기]로 확인을 요청하세요.');
+    } catch (error) {
+      showToast(errorMessage(error));
+      throw error;
+    } finally {
+      setBusyProofOrderId(null);
+    }
+  }
+
+  async function handleRequestRevision(orderId: string, body: string) {
+    setBusyProofOrderId(orderId);
+    try {
+      await store.requestCardRevision(orderId, body);
+      if (customer) await refreshHistory(customer.id);
+      await refreshAdmin();
+      showToast('수정 요청을 보냈어요. 사장님이 새 시안을 올려 드립니다.');
+    } catch (error) {
+      showToast(errorMessage(error));
+      throw error;
+    } finally {
+      setBusyProofOrderId(null);
+    }
+  }
+
+  async function handleConfirmProof(orderId: string) {
+    setBusyProofOrderId(orderId);
+    try {
+      await store.confirmCardProof(orderId);
+      if (customer) await refreshHistory(customer.id);
+      await refreshAdmin();
+      showToast('시안을 확정했어요. 확정 시각과 시안이 기록되고 인쇄가 시작됩니다.');
+    } catch (error) {
+      showToast(errorMessage(error));
+      throw error;
+    } finally {
+      setBusyProofOrderId(null);
+    }
+  }
+
   async function handleSeed() {
     try {
       await store.seedSampleData();
@@ -462,6 +533,10 @@ export default function App() {
             onNewOrder={() => handleNavigate('print')}
             onDeleteAccount={handleDeleteAccount}
             onSaveReview={handleSaveReview}
+            proofLogs={proofLogs}
+            busyProofOrderId={busyProofOrderId}
+            onRequestRevision={handleRequestRevision}
+            onConfirmProof={handleConfirmProof}
             onNotice={showToast}
           />
         )}
@@ -479,6 +554,8 @@ export default function App() {
             onConfirmPayment={(orderId) => void handleConfirmPayment(orderId)}
             onAddPhoto={handleAddPhoto}
             onRemovePhoto={handleRemovePhoto}
+            proofLogs={proofLogs}
+            onUploadProof={handleUploadProof}
             onRefresh={() => void refreshAdmin()}
             onSeed={() => void handleSeed()}
             onSetReviewVisibility={(reviewId, visible) => void handleReviewVisibility(reviewId, visible)}
@@ -579,7 +656,7 @@ export default function App() {
         </div>
       )}
 
-      <NoticePopup onEcoQuote={handleEcoQuote} />
+      <NoticePopup onEcoQuote={handleEcoQuote} ecoAvailable={view !== 'card'} />
 
       <LoginModal
         open={loginOpen}

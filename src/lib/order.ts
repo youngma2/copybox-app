@@ -8,6 +8,8 @@ export type { PickupMethod } from '../config/delivery';
 export interface OrderFormValues {
   name: string;
   phone: string;
+  /** 시안·안내를 받을 이메일 (선택) */
+  email: string;
   address: string;
   notes: string;
   agree: boolean;

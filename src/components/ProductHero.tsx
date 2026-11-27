@@ -1,7 +1,14 @@
 import { won } from '../lib/format';
 import { PAGE_UNIT_PRICE, type ProductKind } from '../config/pricing';
 import { PRODUCT_PAGES } from '../config/products';
-import { CARD_PAPER_OPTIONS, CARD_SPEC } from '../config/business-card';
+import {
+  CARD_DUMMY,
+  CARD_PAPER_OPTIONS,
+  CARD_PROOF,
+  CARD_SPEC,
+  cardPrintOption,
+  cardUnitPrice,
+} from '../config/business-card';
 import { IconArrowRight, IconCheck, IconFile, IconPrinter, IconStore } from './Icons';
 
 const STEP_ICONS = [<IconFile className="h-5 w-5" />, <IconPrinter className="h-5 w-5" />, <IconStore className="h-5 w-5" />];
@@ -61,6 +68,7 @@ function PrintVisual() {
 
 function CardVisual() {
   const paper = CARD_PAPER_OPTIONS[0];
+  const print = cardPrintOption('single4');
   return (
     <div className="relative mx-auto hidden w-full max-w-[360px] lg:block" aria-hidden="true">
       <div className="absolute inset-x-4 top-5 h-full rotate-[-3deg] rounded-2xl border border-ink-100 bg-white/70" />
@@ -68,7 +76,7 @@ function CardVisual() {
         <div className="flex items-start justify-between">
           <div>
             <p className="text-[10px] font-bold tracking-[0.22em] text-ink-400">COPYBOX</p>
-            <p className="mt-1 text-sm font-extrabold text-ink-900">명함 시안</p>
+            <p className="mt-1 text-sm font-extrabold text-ink-900">명함 시안 예시</p>
           </div>
           <span className="rounded-full bg-sun/70 px-2 py-0.5 text-[10px] font-bold text-ink-900">
             {CARD_SPEC.widthMm}×{CARD_SPEC.heightMm}mm
@@ -76,25 +84,28 @@ function CardVisual() {
         </div>
 
         <div className="mt-4 rounded-xl border border-ink-100 bg-paper p-4">
-          <p className="text-[15px] font-extrabold tracking-tight text-ink-900">김영민</p>
-          <p className="mt-0.5 text-[10px] font-semibold text-ink-400">대표 · 카피박스 일산점</p>
+          <p className="text-[15px] font-extrabold tracking-tight text-ink-900">{CARD_DUMMY.name}</p>
+          <p className="mt-0.5 text-[10px] font-semibold text-ink-400">
+            {CARD_DUMMY.title} · {CARD_DUMMY.company}
+          </p>
           <div className="mt-3 space-y-1 text-[10px] leading-relaxed text-ink-600">
-            <p className="num">010-0000-0000</p>
-            <p>카카오톡 @카피박스</p>
+            <p className="num">{CARD_DUMMY.phone}</p>
+            <p>{CARD_DUMMY.email}</p>
             <p>일산 복사 · 출력 · 제본 전문</p>
           </div>
+          <p className="mt-3 text-[9px] text-ink-400">※ 위 문구는 입력 예시(더미)입니다.</p>
         </div>
 
         <div className="mt-3 flex items-center justify-between rounded-lg bg-ink-50 px-2.5 py-2 text-[10px]">
           <span className="font-semibold text-ink-600">
-            {paper.label.replace(' 명함', '')} · {CARD_SPEC.widthMm}×{CARD_SPEC.heightMm}mm
+            {paper.short} · {print.short}
           </span>
-          <span className="num font-extrabold text-ink-900">{won(paper.price)}/200매</span>
+          <span className="num font-extrabold text-ink-900">{won(cardUnitPrice(paper.id, print.id))}/200매</span>
         </div>
 
         <div className="mt-3 flex items-center gap-2 rounded-lg bg-mint/5 px-2.5 py-2 text-[10px] font-medium text-ink-600">
           <span className="h-1.5 w-1.5 rounded-full bg-mint" />
-          접수 후 시안 확인 → 인쇄 · 재단
+          시안 확인 · 확정 후 인쇄 ({CARD_PROOF.leadShort})
         </div>
       </div>
       <div className="absolute -right-3 -top-3 z-10 rotate-3 rounded-xl bg-ink-900 px-3 py-1.5 text-[11px] font-bold text-white shadow-lift">
@@ -109,9 +120,9 @@ export default function ProductHero({ product, onScrollTo }: ProductHeroProps) {
   const priceTags =
     product === 'card'
       ? [
-          { label: '코팅 · 비코팅', value: won(CARD_PAPER_OPTIONS[0].price), note: '200매 기준' },
-          { label: '수입지', value: won(CARD_PAPER_OPTIONS[2].price), note: '200매 기준' },
-          { label: '규격', value: `${CARD_SPEC.widthMm}×${CARD_SPEC.heightMm}`, note: 'mm · 도련 92×52' },
+          { label: `${CARD_PAPER_OPTIONS[0].short} · 단면 컬러`, value: won(cardUnitPrice(CARD_PAPER_OPTIONS[0].id, 'single4')), note: '200매 기준' },
+          { label: `${CARD_PAPER_OPTIONS[0].short} · 단면 흑백`, value: won(cardUnitPrice(CARD_PAPER_OPTIONS[0].id, 'single1')), note: '200매 기준' },
+          { label: '출고', value: '2~3일', note: '시안 확정 후' },
         ]
       : [
           { label: 'A4 흑백 · 단면', value: won(PAGE_UNIT_PRICE.mono.single), note: '페이지당' },

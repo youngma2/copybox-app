@@ -23,14 +23,25 @@ import {
   type Sides,
 } from '../lib/pricing';
 import {
+  CARD_DUMMY,
   CARD_NOTICE,
   CARD_OPEN_BADGE,
   CARD_PAPER_OPTIONS,
+  CARD_PRINT_OPTIONS,
+  CARD_PROOF,
   CARD_SPEC,
+  cardPaperPhotoUrl,
+  cardPrintOption,
+  cardUnitPrice,
+  type CardInfo,
+  type CardPaper,
+  type CardPrintMode,
 } from '../config/business-card';
 import {
+  CARD_SHIPPING_FEE,
   DELIVERY_SPEED_OPTIONS,
   ECO_DEFINITION,
+  SHIPPING_TOTAL,
   type DeliverySpeed,
 } from '../config/delivery';
 import { IconMinus, IconPlus } from './Icons';
@@ -177,6 +188,37 @@ function Stepper({
   );
 }
 
+/** 지류 샘플북 사진 슬롯 — 직접 찍은 사진이 없으면 '준비 중'으로 자리를 지킵니다. */
+function PaperSample({ paperId }: { paperId: CardPaper }) {
+  const option = CARD_PAPER_OPTIONS.find((row) => row.id === paperId) ?? CARD_PAPER_OPTIONS[0];
+  const photo = cardPaperPhotoUrl(option);
+  return (
+    <span
+      data-testid={`paper-sample-${paperId}`}
+      className="grid h-12 w-16 shrink-0 place-items-center overflow-hidden rounded-lg border border-ink-100 bg-ink-50/70 text-[8px] font-semibold leading-tight text-ink-400"
+    >
+      {photo ? (
+        <img src={photo} alt={`${option.name} 샘플`} className="h-full w-full object-cover" />
+      ) : (
+        <span className="px-1 text-center">
+          샘플
+          <br />
+          준비 중
+        </span>
+      )}
+    </span>
+  );
+}
+
+const CARD_INFO_FIELDS: { key: keyof CardInfo; label: string; placeholder: string; testId: string; wide?: boolean }[] = [
+  { key: 'name', label: '성함', placeholder: CARD_DUMMY.name, testId: 'card-info-name' },
+  { key: 'title', label: '직함', placeholder: CARD_DUMMY.title, testId: 'card-info-title' },
+  { key: 'company', label: '회사 · 상호', placeholder: CARD_DUMMY.company, testId: 'card-info-company' },
+  { key: 'phone', label: '연락처', placeholder: CARD_DUMMY.phone, testId: 'card-info-phone' },
+  { key: 'email', label: '이메일', placeholder: CARD_DUMMY.email, testId: 'card-info-email' },
+  { key: 'address', label: '주소 (선택)', placeholder: CARD_DUMMY.address, testId: 'card-info-address' },
+];
+
 export default function OptionsCard({ value, pagesAuto, fileName, onChange, onProductChange }: OptionsCardProps) {
   const isCard = value.product === 'card';
   const colorOptions: SegmentedOption<ColorMode>[] = (['mono', 'color'] as ColorMode[]).map((color) => ({
@@ -190,6 +232,16 @@ export default function OptionsCard({ value, pagesAuto, fileName, onChange, onPr
     label: SIDES_LABEL[sides],
     sub: `${won(unitPagePrice(value.size, value.color, sides))}/페이지`,
   }));
+
+  const printOptions: SegmentedOption<CardPrintMode>[] = CARD_PRINT_OPTIONS.map((option) => ({
+    value: option.id,
+    label: option.label,
+    sub: `200매 ${won(cardUnitPrice(value.cardPaper, option.id))}`,
+  }));
+
+  function patchCardInfo(patch: Partial<CardInfo>) {
+    onChange({ cardInfo: { ...value.cardInfo, ...patch } });
+  }
 
   return (
     <section className="card" aria-labelledby="options-title">
@@ -233,7 +285,7 @@ export default function OptionsCard({ value, pagesAuto, fileName, onChange, onPr
                 >
                   <span className="block truncate text-sm font-bold">{PRODUCT_LABEL[product]}</span>
                   <span className={`mt-0.5 block truncate text-[10px] font-medium ${selected ? 'text-brand-600' : 'text-ink-400'}`}>
-                    {product === 'print' ? 'PDF 인쇄 · 스프링/와이어' : `${CARD_OPEN_BADGE} · 200매 15,000원`}
+                    {product === 'print' ? 'PDF 인쇄 · 스프링/와이어' : `${CARD_OPEN_BADGE} · 200매 15,000원~`}
                   </span>
                 </button>
               );
@@ -251,7 +303,7 @@ export default function OptionsCard({ value, pagesAuto, fileName, onChange, onPr
                 <span className="text-[13px] font-bold text-ink-800">지류</span>
                 <span className="rounded-full bg-sun/70 px-2 py-0.5 text-[10px] font-bold text-ink-900">{CARD_OPEN_BADGE}</span>
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid gap-2" role="group" aria-label="명함 지류">
                 {CARD_PAPER_OPTIONS.map((option) => {
                   const selected = option.id === value.cardPaper;
                   return (
@@ -261,23 +313,53 @@ export default function OptionsCard({ value, pagesAuto, fileName, onChange, onPr
                       aria-pressed={selected}
                       data-testid={`card-paper-${option.id}`}
                       onClick={() => onChange({ cardPaper: option.id })}
-                      className={`min-w-0 rounded-xl border px-1.5 py-2.5 text-center transition ${
+                      className={`flex min-w-0 items-center gap-3 rounded-xl border px-2.5 py-2.5 text-left transition ${
                         selected
                           ? 'border-brand-600 bg-brand-50 ring-1 ring-brand-600'
                           : 'border-ink-100 bg-white hover:border-ink-200 hover:bg-ink-50/60'
                       }`}
                     >
-                      <span className={`block truncate text-[13px] font-bold ${selected ? 'text-brand-700' : 'text-ink-900'}`}>
-                        {option.label.replace(' 명함', '')}
+                      <PaperSample paperId={option.id} />
+                      <span className="min-w-0 flex-1">
+                        <span className={`block break-words text-[13px] font-bold ${selected ? 'text-brand-700' : 'text-ink-900'}`}>
+                          {option.name}
+                        </span>
+                        <span className={`mt-0.5 block break-words text-[10px] leading-relaxed ${selected ? 'text-brand-600' : 'text-ink-500'}`}>
+                          {option.gsm}g/㎡ · {option.texture}
+                        </span>
                       </span>
-                      <span className={`mt-0.5 block truncate text-[10px] ${selected ? 'text-brand-600' : 'text-ink-400'}`}>
-                        {won(option.price)}/200매
+                      <span className={`num shrink-0 text-right text-[12px] font-extrabold ${selected ? 'text-brand-700' : 'text-ink-900'}`}>
+                        {won(cardUnitPrice(option.id, value.cardPrint))}
+                        <span className="block text-[9px] font-semibold text-ink-400">/200매</span>
                       </span>
                     </button>
                   );
                 })}
               </div>
-              <p className="mt-1.5 text-[10px] leading-relaxed text-ink-400">{CARD_SPEC.label} · {CARD_NOTICE}</p>
+              <p className="mt-1.5 text-[10px] leading-relaxed text-ink-400">
+                {CARD_SPEC.label} · 작업 92×52mm / 재단 90×50mm · {CARD_NOTICE}
+              </p>
+              <p className="mt-1 text-[10px] leading-relaxed text-ink-400">
+                ※ 샘플 사진은 직접 촬영한 실물 사진으로 교체할 자리입니다. (지금은 준비 중)
+              </p>
+            </div>
+
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-ink-800">인쇄 면 · 도수</span>
+                <span className="text-[10px] font-medium text-ink-400">{cardPrintOption(value.cardPrint).short}</span>
+              </div>
+              <Segmented
+                label="인쇄 면·도수"
+                testIdPrefix="card-print"
+                columns="grid-cols-2"
+                value={value.cardPrint}
+                options={printOptions}
+                onChange={(cardPrint) => onChange({ cardPrint })}
+              />
+              <p className="mt-1.5 text-[10px] leading-relaxed text-ink-400">
+                {cardPrintOption(value.cardPrint).note} 견적은 지류 기준가에 면·도수 차액을 더해 계산합니다.
+              </p>
             </div>
 
             <div>
@@ -299,9 +381,37 @@ export default function OptionsCard({ value, pagesAuto, fileName, onChange, onPr
               </p>
             </div>
 
+            <div className="rounded-xl border border-ink-100 bg-ink-50/40 px-3 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-1">
+                <span className="text-[13px] font-bold text-ink-800">명함에 넣을 정보</span>
+                <span className="text-[10px] font-medium text-ink-400">시안 제작에 쓰입니다</span>
+              </div>
+              <div className="mt-2.5 grid gap-2.5 sm:grid-cols-2">
+                {CARD_INFO_FIELDS.map((field) => (
+                  <div key={field.key} className={field.wide ? 'sm:col-span-2' : undefined}>
+                    <label htmlFor={`card-info-${field.key}`} className="mb-1 block text-[11px] font-semibold text-ink-700">
+                      {field.label}
+                    </label>
+                    <input
+                      id={`card-info-${field.key}`}
+                      data-testid={field.testId}
+                      type={field.key === 'email' ? 'email' : field.key === 'phone' ? 'tel' : 'text'}
+                      value={value.cardInfo[field.key]}
+                      onChange={(event) => patchCardInfo({ [field.key]: event.target.value } as Partial<CardInfo>)}
+                      placeholder={field.placeholder}
+                      className="field !py-2 !text-[12px]"
+                    />
+                  </div>
+                ))}
+              </div>
+              <p className="mt-2 text-[10px] leading-relaxed text-ink-400">
+                비워 두셔도 됩니다. 예시 문구(홍길동 · 010-0000-0000 · hong@example.com)는 입력 예시일 뿐 저장되지 않습니다.
+              </p>
+            </div>
+
             <div>
               <label htmlFor="card-text" className="mb-1.5 block text-[13px] font-bold text-ink-800">
-                명함에 넣을 문구 <span className="text-[10px] font-medium text-ink-400">(선택 · 시안 제작용)</span>
+                추가 문구 · 요청 <span className="text-[10px] font-medium text-ink-400">(선택)</span>
               </label>
               <textarea
                 id="card-text"
@@ -309,10 +419,21 @@ export default function OptionsCard({ value, pagesAuto, fileName, onChange, onPr
                 rows={3}
                 value={value.cardText}
                 onChange={(event) => onChange({ cardText: event.target.value })}
-                placeholder={'예) 카피박스 · 김영민 · 010-0000-0000\n일산 복사·출력·제본 전문'}
+                placeholder={'예) 앞면은 이름·연락처, 뒷면은 계좌와 영업시간을 넣고 싶어요.\n로고 파일은 카톡으로 보내 드릴게요.'}
                 className="field resize-none text-[13px]"
               />
-              <p className="mt-1 text-[10px] text-ink-400">디자인 파일이 없어도 문구만 주시면 시안을 만들어 드려요.</p>
+              <p className="mt-1 text-[10px] text-ink-400">디자인 파일이 없어도 문구만 주시면 시안을 만들어 드립니다.</p>
+            </div>
+
+            <div className="space-y-2 rounded-xl border border-sun/60 bg-sun/10 px-3 py-3 text-[11px] leading-relaxed text-ink-700">
+              <p className="font-bold text-ink-900">
+                🕒 명함은 {CARD_PROOF.leadLabel}입니다. (A4 출력과 다릅니다)
+              </p>
+              <p>
+                주문 접수 → <strong className="font-semibold">시안 확인 요청</strong> → 고객 <strong className="font-semibold">[시안 확정(OK)]</strong> 후
+                인쇄·재단이 시작됩니다. 시안 확인 전에는 인쇄가 진행되지 않습니다.
+              </p>
+              <p className="font-semibold text-amber-800">{CARD_PROOF.revisionNotice}</p>
             </div>
           </div>
         ) : (
@@ -459,56 +580,76 @@ export default function OptionsCard({ value, pagesAuto, fileName, onChange, onPr
           </>
         )}
 
-        <div className="h-px bg-ink-100" />
+        {/* 출고 속도 — 여유 제작 특가는 A4 출력에만 있습니다. */}
+        {!isCard && (
+          <>
+            <div className="h-px bg-ink-100" />
 
-        {/* 출고 속도 — 여유 제작 특가 */}
-        <div>
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-1">
-            <span className="text-[13px] font-bold text-ink-800">출고 속도</span>
-            <span className="text-[10px] font-medium text-ink-400">여유특가는 인쇄비 10% 할인</span>
-          </div>
-          <div className="grid gap-2">
-            {DELIVERY_SPEED_OPTIONS.map((option) => {
-              const selected = option.id === value.deliverySpeed;
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  aria-pressed={selected}
-                  data-testid={`speed-${option.id}`}
-                  onClick={() => onChange({ deliverySpeed: option.id as DeliverySpeed })}
-                  className={`min-w-0 rounded-xl border px-3 py-2.5 text-left transition ${
-                    selected
-                      ? option.id === 'eco'
-                        ? 'border-mint bg-mint/5 ring-1 ring-mint'
-                        : 'border-brand-600 bg-brand-50 ring-1 ring-brand-600'
-                      : 'border-ink-100 bg-white hover:border-ink-200 hover:bg-ink-50/60'
-                  }`}
-                >
-                  <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <span className={`text-[13px] font-bold ${selected ? (option.id === 'eco' ? 'text-mint' : 'text-brand-700') : 'text-ink-900'}`}>
-                      {option.emoji} {option.short}
-                    </span>
-                    {option.id === 'eco' && (
-                      <span className="rounded-full bg-sun/70 px-1.5 py-0.5 text-[9px] font-bold text-ink-900">인쇄비 10% 할인</span>
-                    )}
-                  </span>
-                  <span className="mt-0.5 block break-words text-[10px] leading-relaxed text-ink-500">{option.sub}</span>
-                </button>
-              );
-            })}
-          </div>
-          <p className="mt-1.5 text-[10px] leading-relaxed text-ink-400">{ECO_DEFINITION}</p>
-        </div>
+            <div>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-1">
+                <span className="text-[13px] font-bold text-ink-800">출고 속도</span>
+                <span className="text-[10px] font-medium text-ink-400">여유특가는 인쇄비 10% 할인</span>
+              </div>
+              <div className="grid gap-2">
+                {DELIVERY_SPEED_OPTIONS.map((option) => {
+                  const selected = option.id === value.deliverySpeed;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      aria-pressed={selected}
+                      data-testid={`speed-${option.id}`}
+                      onClick={() => onChange({ deliverySpeed: option.id as DeliverySpeed })}
+                      className={`min-w-0 rounded-xl border px-3 py-2.5 text-left transition ${
+                        selected
+                          ? option.id === 'eco'
+                            ? 'border-mint bg-mint/5 ring-1 ring-mint'
+                            : 'border-brand-600 bg-brand-50 ring-1 ring-brand-600'
+                          : 'border-ink-100 bg-white hover:border-ink-200 hover:bg-ink-50/60'
+                      }`}
+                    >
+                      <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <span className={`text-[13px] font-bold ${selected ? (option.id === 'eco' ? 'text-mint' : 'text-brand-700') : 'text-ink-900'}`}>
+                          {option.emoji} {option.short}
+                        </span>
+                        {option.id === 'eco' && (
+                          <span className="rounded-full bg-sun/70 px-1.5 py-0.5 text-[9px] font-bold text-ink-900">인쇄비 10% 할인</span>
+                        )}
+                      </span>
+                      <span className="mt-0.5 block break-words text-[10px] leading-relaxed text-ink-500">{option.sub}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-1.5 text-[10px] leading-relaxed text-ink-400">{ECO_DEFINITION}</p>
+            </div>
+          </>
+        )}
 
         <div className="h-px bg-ink-100" />
 
         <div className="grid gap-2 text-[11px] leading-relaxed text-ink-600 sm:grid-cols-2">
           <p className="rounded-lg bg-ink-50/80 px-3 py-2">
-            <strong className="font-semibold text-ink-800">방문 수령 0원</strong> · 택배는 기본 택배비 4,000원 + 포장재비 1,000원
+            {isCard ? (
+              <>
+                <strong className="font-semibold text-ink-800">방문 수령 0원</strong> · 택배는 배송비 {won(CARD_SHIPPING_FEE)} (인쇄소 직배송 · 포장재비 없음)
+              </>
+            ) : (
+              <>
+                <strong className="font-semibold text-ink-800">방문 수령 0원</strong> · 택배는 기본 택배비 4,000원 + 포장재비 1,000원 = {won(SHIPPING_TOTAL)}
+              </>
+            )}
           </p>
           <p className="rounded-lg bg-mint/5 px-3 py-2">
-            <strong className="font-semibold text-mint">여유 제작 특가</strong> · 영업일 4일 이내 <strong className="font-semibold text-ink-800">출고</strong> 기준
+            {isCard ? (
+              <>
+                <strong className="font-semibold text-mint">시안 확인</strong> · {CARD_PROOF.leadLabel} · 수정 최대 {CARD_PROOF.maxRevisions}회
+              </>
+            ) : (
+              <>
+                <strong className="font-semibold text-mint">여유 제작 특가</strong> · 영업일 4일 이내 <strong className="font-semibold text-ink-800">출고</strong> 기준
+              </>
+            )}
           </p>
         </div>
       </div>

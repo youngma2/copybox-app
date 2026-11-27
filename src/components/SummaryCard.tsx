@@ -1,6 +1,7 @@
 import { won } from '../lib/format';
-import { COLOR_LABEL, SIDES_LABEL, cardPaperOption, type Quote } from '../lib/pricing';
-import { SHIPPING_TOTAL, deliverySpeedOption } from '../config/delivery';
+import { COLOR_LABEL, SIDES_LABEL, type Quote } from '../lib/pricing';
+import { CARD_PROOF, cardPrintOption, cardSheetLabel } from '../config/business-card';
+import { CARD_SHIPPING_FEE, SHIPPING_TOTAL, deliverySpeedOption } from '../config/delivery';
 import type { PickupMethod } from '../config/delivery';
 import type { UploadedFileMeta } from './Uploader';
 import { IconArrowRight, IconClock, IconFile, IconPrinter, IconShield } from './Icons';
@@ -63,7 +64,7 @@ export default function SummaryCard({ quote, file, onOrder, onChangePickup }: Su
                 <span className="text-[13px] font-semibold text-ink-800">{isCard ? '명함 인쇄' : '인쇄비'}</span>
                 <span className="mt-0.5 block text-[11px] leading-relaxed text-ink-400">
                   {isCard
-                    ? `${cardPaperOption(quote.cardPaper).label} · ${won(quote.unitPrice)}/200매 × ${quote.cardUnits}묶음`
+                    ? `${cardSheetLabel(quote.cardPaper)} · ${cardPrintOption(quote.cardPrint).label} · ${won(quote.unitPrice)}/200매 × ${quote.cardUnits}묶음`
                     : `${optionLine} · ${won(quote.unitPrice)}/페이지 × ${quote.pages}페이지 × ${quote.copies}부`}
                 </span>
               </dt>
@@ -126,19 +127,25 @@ export default function SummaryCard({ quote, file, onOrder, onChangePickup }: Su
               {quote.pickup === 'delivery' ? (
                 <div className="mt-2 space-y-1 text-[11px]">
                   <div className="flex justify-between gap-2 text-ink-600">
-                    <span>택배비</span>
+                    <span>{isCard ? '배송비 (인쇄소 직배송)' : '택배비'}</span>
                     <span className="num font-semibold text-ink-800">{won(quote.shippingFee)}</span>
                   </div>
-                  <div className="flex justify-between gap-2 text-ink-600">
-                    <span>박스 · 포장재비</span>
-                    <span className="num font-semibold text-ink-800">{won(quote.packagingFee)}</span>
-                  </div>
+                  {!isCard && (
+                    <div className="flex justify-between gap-2 text-ink-600">
+                      <span>박스 · 포장재비</span>
+                      <span className="num font-semibold text-ink-800">{won(quote.packagingFee)}</span>
+                    </div>
+                  )}
                   <p className="pt-0.5 text-[10px] leading-relaxed text-ink-400">
-                    제주·도서산간·추가 박스는 별도 안내 · 퀵은 착불
+                    {isCard
+                      ? '명함은 포장재비 없이 배송비만 받습니다 · 제주·도서산간은 별도 · 퀵은 착불'
+                      : '제주·도서산간·추가 박스는 별도 안내 · 퀵은 착불'}
                   </p>
                 </div>
               ) : (
-                <p className="mt-1.5 text-[10px] text-ink-400">방문 수령은 배송비 0원 · 택배 선택 시 {won(SHIPPING_TOTAL)} 추가</p>
+                <p className="mt-1.5 text-[10px] text-ink-400">
+                  방문 수령은 배송비 0원 · 택배 선택 시 {won(isCard ? CARD_SHIPPING_FEE : SHIPPING_TOTAL)} 추가
+                </p>
               )}
             </div>
           </dl>
@@ -162,12 +169,23 @@ export default function SummaryCard({ quote, file, onOrder, onChangePickup }: Su
           <div className="mt-3 flex items-start gap-2 rounded-xl bg-mint/5 px-3 py-2.5 text-[10px] leading-relaxed text-ink-600">
             <IconClock className="mt-px h-3.5 w-3.5 shrink-0 text-mint" />
             <p>
-              <strong className="font-bold text-mint">{speed.emoji} {speed.short}</strong> · 출고 마감{' '}
-              <strong className="font-semibold text-ink-800">{formatDateLabel(quote.dueDate)}</strong>
-              <br />
-              {quote.deliverySpeed === 'eco'
-                ? '배송 도착일이 아닌 영업일 4일 이내 출고 기준입니다.'
-                : '영업일 1~2일 내 출고를 목표로 합니다.'}
+              {isCard ? (
+                <>
+                  <strong className="font-bold text-mint">{CARD_PROOF.leadShort}</strong> · 시안 확인 필수
+                  <br />
+                  시안 확인 요청 → <strong className="font-semibold text-ink-800">시안 확정(OK)</strong> 후 인쇄·재단을 시작합니다. (수정 최대{' '}
+                  {CARD_PROOF.maxRevisions}회)
+                </>
+              ) : (
+                <>
+                  <strong className="font-bold text-mint">{speed.emoji} {speed.short}</strong> · 출고 마감{' '}
+                  <strong className="font-semibold text-ink-800">{formatDateLabel(quote.dueDate)}</strong>
+                  <br />
+                  {quote.deliverySpeed === 'eco'
+                    ? '배송 도착일이 아닌 영업일 4일 이내 출고 기준입니다.'
+                    : '영업일 1~2일 내 출고를 목표로 합니다.'}
+                </>
+              )}
             </p>
           </div>
 

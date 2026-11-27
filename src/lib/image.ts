@@ -46,3 +46,32 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     image.src = src;
   });
 }
+
+/** 명함 시안 파일(이미지/PDF) → 저장용 data URL · 시안 모드는 브라우저에, 운영은 R2에 둡니다. */
+export async function proofFileToDataUrl(
+  file: File,
+  maxBytes = 3 * 1024 * 1024,
+): Promise<{ fileUrl: string; fileType: 'image' | 'pdf' }> {
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  const isImage = file.type.startsWith('image/');
+  if (!isPdf && !isImage) {
+    throw new Error('시안은 이미지(JPG · PNG)나 PDF만 올릴 수 있어요.');
+  }
+  if (isPdf) {
+    if (file.size > maxBytes) {
+      throw new Error('PDF 시안은 3MB 이하만 올릴 수 있어요. 이미지로 저장해 올려 주세요.');
+    }
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ''));
+      reader.onerror = () => reject(new Error('시안 파일을 읽지 못했어요.'));
+      reader.readAsDataURL(file);
+    });
+    return { fileUrl: dataUrl, fileType: 'pdf' };
+  }
+  const dataUrl = await fileToDataUrl(file, 1400, 0.85);
+  if (dataUrl.length > maxBytes * 1.4) {
+    throw new Error('이미지가 너무 커요. 조금 줄여서 다시 올려 주세요.');
+  }
+  return { fileUrl: dataUrl, fileType: 'image' };
+}

@@ -4,10 +4,11 @@ import { formatOrderDate, formatPhone } from '../../lib/order';
 import { PICKUP_LABEL } from '../../config/delivery';
 import { PAYMENT_METHOD_LABEL, PAYMENT_STATUS_LABEL, ORDER_STATUS_FLOW, ORDER_STATUS_LABEL } from '../../config/status';
 import type { OrderStatus } from '../../config/status';
-import type { OrderWithCustomer, StatusHistory } from '../../lib/storage/types';
+import type { CardProofLog, CardProofUploadInput, OrderWithCustomer, StatusHistory } from '../../lib/storage/types';
 import { describeOrderOptions, formatDateLabel } from '../../lib/describe';
 import StatusBadge, { PaymentBadge } from '../StatusBadge';
 import PickupPhotos from '../PickupPhotos';
+import { CardProofAdmin } from '../CardProof';
 import OrderMessages from '../OrderMessages';
 import { IconFile, IconRefresh, IconUser } from '../Icons';
 
@@ -21,6 +22,8 @@ interface AdminOrdersProps {
   onConfirmPayment: (orderId: string) => void;
   onAddPhoto: (orderId: string, dataUrl: string) => Promise<void>;
   onRemovePhoto: (orderId: string, photoId: string) => Promise<void>;
+  proofLogs: CardProofLog[];
+  onUploadProof: (orderId: string, input: CardProofUploadInput) => Promise<void>;
   onRefresh: () => void;
   onSeed: () => void;
   onNotice: (message: string) => void;
@@ -38,6 +41,8 @@ export default function AdminOrders({
   onConfirmPayment,
   onAddPhoto,
   onRemovePhoto,
+  proofLogs,
+  onUploadProof,
   onRefresh,
   onSeed,
   onNotice,
@@ -228,6 +233,8 @@ export default function AdminOrders({
               onConfirmPayment={onConfirmPayment}
               onAddPhoto={onAddPhoto}
               onRemovePhoto={onRemovePhoto}
+              proofLogs={proofLogs.filter((log) => log.orderId === order.id)}
+              onUploadProof={onUploadProof}
               onNotice={onNotice}
             />
           ))}
@@ -245,6 +252,8 @@ function AdminOrderCard({
   onConfirmPayment,
   onAddPhoto,
   onRemovePhoto,
+  proofLogs,
+  onUploadProof,
   onNotice,
 }: {
   order: OrderWithCustomer;
@@ -254,9 +263,13 @@ function AdminOrderCard({
   onConfirmPayment: (orderId: string) => void;
   onAddPhoto: (orderId: string, dataUrl: string) => Promise<void>;
   onRemovePhoto: (orderId: string, photoId: string) => Promise<void>;
+  proofLogs: CardProofLog[];
+  onUploadProof: (orderId: string, input: CardProofUploadInput) => Promise<void>;
   onNotice: (message: string) => void;
 }) {
   const isEco = order.deliverySpeed === 'eco';
+  const isCard = order.product === 'card';
+  const proofLocked = isCard && order.proofStatus !== 'confirmed';
   return (
     <li data-testid="admin-order" data-order-number={order.orderNumber} className="card min-w-0 overflow-hidden">
       <div className="flex flex-wrap items-start justify-between gap-2 border-b border-ink-100 px-4 py-3.5 sm:px-5">
@@ -383,13 +396,15 @@ function AdminOrderCard({
         <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-5" role="group" aria-label={`${order.orderNumber} 상태 변경`}>
           {ORDER_STATUS_FLOW.map((status) => {
             const active = order.status === status;
+            const locked = proofLocked && status !== 'received';
             return (
               <button
                 key={status}
                 type="button"
                 data-testid={`admin-status-${order.orderNumber}-${status}`}
                 aria-pressed={active}
-                disabled={busy || active}
+                disabled={busy || active || locked}
+                title={locked ? '고객 시안 확정(OK) 후에 인쇄를 시작할 수 있습니다.' : undefined}
                 onClick={() => onStatusChange(order.id, status)}
                 className={`rounded-xl border px-1 py-2 text-[11px] font-bold transition ${
                   active
@@ -403,8 +418,19 @@ function AdminOrderCard({
           })}
         </div>
         <p className="text-[10px] text-ink-400">
-          출고·배송 완료로 바꾸면 PDF 원본 파기 예정일(14일 뒤)이 자동으로 잡힙니다.
+          {proofLocked
+            ? '명함 주문은 고객 [시안 확정(OK)] 후에 인쇄중으로 바꿀 수 있습니다.'
+            : '출고·배송 완료로 바꾸면 PDF 원본 파기 예정일(14일 뒤)이 자동으로 잡힙니다.'}
         </p>
+
+        {isCard && (
+          <CardProofAdmin
+            order={order}
+            logs={proofLogs}
+            onUpload={onUploadProof}
+            onNotice={onNotice}
+          />
+        )}
 
         <PickupPhotos
           photos={order.pickupPhotos}

@@ -1,14 +1,27 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { PROVIDER_LABEL } from '../lib/auth';
 import { won } from '../lib/format';
-import { BINDING_OPTIONS, COLOR_LABEL, SIDES_LABEL, cardPaperOption, type Quote } from '../lib/pricing';
+import { BINDING_OPTIONS, COLOR_LABEL, SIDES_LABEL, type Quote } from '../lib/pricing';
+import {
+  CARD_PROOF,
+  CARD_PROOF_STATUS_LABEL,
+  cardPrintOption,
+  cardSheetLabel,
+  type CardInfo,
+} from '../config/business-card';
 import {
   formatOrderDate,
   formatPhone,
   isValidPhone,
   type OrderFormValues,
 } from '../lib/order';
-import { PICKUP_LABEL, SHIPPING_TOTAL, deliverySpeedOption, type PickupMethod } from '../config/delivery';
+import {
+  CARD_SHIPPING_FEE,
+  PICKUP_LABEL,
+  SHIPPING_TOTAL,
+  deliverySpeedOption,
+  type PickupMethod,
+} from '../config/delivery';
 import {
   ORDER_STATUS_LABEL,
   PAYMENT_METHOD_LABEL,
@@ -38,6 +51,10 @@ interface OrderSectionProps {
 
 type Step = 'form' | 'pay';
 
+function hasCardInfo(info: CardInfo): boolean {
+  return Boolean(info.name || info.title || info.company || info.phone || info.email || info.address);
+}
+
 export default function OrderSection({
   quote,
   file,
@@ -53,6 +70,7 @@ export default function OrderSection({
 }: OrderSectionProps) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
   const [notes, setNotes] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('bank_transfer');
@@ -66,6 +84,7 @@ export default function OrderSection({
     if (!customer) return;
     setName((current) => (current === '' ? customer.name : current));
     setPhone((current) => (current === '' ? formatPhone(customer.phone) : current));
+    setEmail((current) => (current === '' ? customer.email ?? '' : current));
   }, [customer]);
 
   // 접수증이 그려진 뒤에 접수 위치로 이동 (폼이 사라져 높이가 바뀌므로)
@@ -104,7 +123,7 @@ export default function OrderSection({
     setSubmitError(null);
     setSubmitting(true);
     try {
-      await onSubmit({ name, phone, address, notes, agree, paymentMethod });
+      await onSubmit({ name, phone, email, address, notes, agree, paymentMethod });
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : '주문을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
     } finally {
@@ -215,6 +234,25 @@ export default function OrderSection({
                     />
                     {touched && phoneError && <p className="mt-1 text-[11px] font-medium text-rose-600">{phoneError}</p>}
                   </div>
+
+                  <div className="sm:col-span-2">
+                    <label htmlFor="order-email" className="mb-1.5 block text-[13px] font-bold text-ink-800">
+                      이메일 <span className="text-[11px] font-medium text-ink-400">(선택 · 시안·안내 받으실 곳)</span>
+                    </label>
+                    <input
+                      id="order-email"
+                      data-testid="order-email"
+                      type="email"
+                      autoComplete="email"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      placeholder="hong@example.com"
+                      className="field"
+                    />
+                    <p className="mt-1 text-[11px] text-ink-400">
+                      명함 시안 확인 요청을 메일로도 보내 드립니다. 비워 두시면 주문 이력·연락처로 안내합니다.
+                    </p>
+                  </div>
                 </div>
 
                 <fieldset className="mt-5">
@@ -249,7 +287,11 @@ export default function OrderSection({
                               {method === 'store' ? '매장 방문 (0원)' : '택배 · 퀵'}
                             </span>
                             <span className="block truncate text-[10px] text-ink-400">
-                              {method === 'store' ? '준비 완료 후 방문' : `택배+포장 ${won(SHIPPING_TOTAL)}`}
+                              {method === 'store'
+                                ? '준비 완료 후 방문'
+                                : quote.product === 'card'
+                                  ? `배송비 ${won(CARD_SHIPPING_FEE)}`
+                                  : `택배+포장 ${won(SHIPPING_TOTAL)}`}
                             </span>
                           </span>
                         </button>
@@ -274,7 +316,9 @@ export default function OrderSection({
                       />
                       {touched && addressError && <p className="mt-1 text-[11px] font-medium text-rose-600">{addressError}</p>}
                       <p className="mt-1.5 text-[11px] leading-relaxed text-ink-400">
-                        기본 택배비 4,000원 + 박스·포장재비 1,000원 = {won(SHIPPING_TOTAL)} · 제주·도서산간은 별도 · 퀵은 착불
+                        {quote.product === 'card'
+                          ? `명함은 인쇄소 직배송이라 배송비 ${won(CARD_SHIPPING_FEE)}만 받습니다 (포장재비 없음) · 제주·도서산간은 별도 · 퀵은 착불`
+                          : `기본 택배비 4,000원 + 박스·포장재비 1,000원 = ${won(SHIPPING_TOTAL)} · 제주·도서산간은 별도 · 퀵은 착불`}
                       </p>
                     </div>
                   )}
@@ -348,18 +392,37 @@ export default function OrderSection({
                       {quote.cardText.trim()}
                     </p>
                   )}
+                  {quote.product === 'card' && hasCardInfo(quote.cardInfo) && (
+                    <dl className="mt-2 space-y-1 rounded-lg bg-sun/10 px-2.5 py-2 text-[11px] leading-relaxed text-ink-700">
+                      <div className="flex gap-2">
+                        <dt className="shrink-0 font-semibold text-ink-800">명함 정보</dt>
+                        <dd className="min-w-0 break-words">
+                          {[quote.cardInfo.name, quote.cardInfo.title, quote.cardInfo.company].filter(Boolean).join(' · ')}
+                          {quote.cardInfo.phone ? ` · ${quote.cardInfo.phone}` : ''}
+                          {quote.cardInfo.email ? ` · ${quote.cardInfo.email}` : ''}
+                          {quote.cardInfo.address ? ` · ${quote.cardInfo.address}` : ''}
+                        </dd>
+                      </div>
+                    </dl>
+                  )}
                   <dl className="mt-3 space-y-2 text-[12px]">
                     {quote.product === 'card' ? (
                       <>
                         <div className="flex justify-between gap-3">
                           <dt className="text-ink-400">지류 · 규격</dt>
                           <dd className="text-right font-semibold text-ink-800">
-                            {cardPaperOption(quote.cardPaper).label} · {quote.cardQty}매
+                            {cardSheetLabel(quote.cardPaper)} · 90×50mm
                           </dd>
                         </div>
                         <div className="flex justify-between gap-3">
-                          <dt className="text-ink-400">단가</dt>
-                          <dd className="font-semibold text-ink-800">{won(quote.unitPrice)}/200매</dd>
+                          <dt className="text-ink-400">인쇄 면 · 도수</dt>
+                          <dd className="text-right font-semibold text-ink-800">{cardPrintOption(quote.cardPrint).label}</dd>
+                        </div>
+                        <div className="flex justify-between gap-3">
+                          <dt className="text-ink-400">수량 · 단가</dt>
+                          <dd className="text-right font-semibold text-ink-800">
+                            {quote.cardQty}매 · {won(quote.unitPrice)}/200매
+                          </dd>
                         </div>
                       </>
                     ) : (
@@ -388,14 +451,18 @@ export default function OrderSection({
                     <div className="flex justify-between gap-3">
                       <dt className="text-ink-400">출고</dt>
                       <dd className="text-right font-semibold text-ink-800">
-                        {speed.emoji} {speed.short} · 마감 {formatDateLabel(quote.dueDate)}
+                        {quote.product === 'card'
+                          ? CARD_PROOF.leadLabel
+                          : `${speed.emoji} ${speed.short} · 마감 ${formatDateLabel(quote.dueDate)}`}
                       </dd>
                     </div>
                     <div className="flex justify-between gap-3">
                       <dt className="text-ink-400">수령</dt>
                       <dd className="text-right font-semibold text-ink-800">
                         {PICKUP_LABEL[pickup]}
-                        {pickup === 'delivery' ? ` (+${won(SHIPPING_TOTAL)})` : ' (0원)'}
+                        {pickup === 'delivery'
+                          ? ` (+${won(quote.product === 'card' ? CARD_SHIPPING_FEE : SHIPPING_TOTAL)})`
+                          : ' (0원)'}
                       </dd>
                     </div>
                     {quote.discount > 0 && (
@@ -494,17 +561,31 @@ export default function OrderSection({
 
               <div className="rounded-2xl border border-ink-100 bg-white/70 p-4">
                 <p className="text-[12px] font-bold text-ink-800">이렇게 진행돼요</p>
-                <ol className="mt-2.5 space-y-2 text-[11px] leading-relaxed text-ink-600">
-                  <li className="flex gap-2">
-                    <span className="font-bold text-brand-600">1</span> 결제 완료 → 사장님 주문 목록에 표시
-                  </li>
-                  <li className="flex gap-2">
-                    <span className="font-bold text-brand-600">2</span> 입금 확인 후 출력·제본
-                  </li>
-                  <li className="flex gap-2">
-                    <span className="font-bold text-brand-600">3</span> 출고(택배 접수·수령 준비) → 보관 사진 확인
-                  </li>
-                </ol>
+                {quote.product === 'card' ? (
+                  <ol className="mt-2.5 space-y-2 text-[11px] leading-relaxed text-ink-600">
+                    <li className="flex gap-2">
+                      <span className="font-bold text-brand-600">1</span> 결제 완료 → 사장님 주문 목록에 표시
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="font-bold text-brand-600">2</span> 시안 확인 요청 → 미리보기 확인 (수정 최대 2회)
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="font-bold text-brand-600">3</span> [시안 확정(OK)] → 인쇄·재단 → 영업일 2~3일 내 출고
+                    </li>
+                  </ol>
+                ) : (
+                  <ol className="mt-2.5 space-y-2 text-[11px] leading-relaxed text-ink-600">
+                    <li className="flex gap-2">
+                      <span className="font-bold text-brand-600">1</span> 결제 완료 → 사장님 주문 목록에 표시
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="font-bold text-brand-600">2</span> 입금 확인 후 출력·제본
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="font-bold text-brand-600">3</span> 출고(택배 접수·수령 준비) → 보관 사진 확인
+                    </li>
+                  </ol>
+                )}
               </div>
             </div>
           </div>
@@ -597,6 +678,31 @@ function ReceiptView({
                 </dd>
               </div>
             )}
+            {isCard && (
+              <>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-ink-400">시안 상태</dt>
+                  <dd data-testid="receipt-proof-status" className="font-semibold text-amber-700">
+                    {CARD_PROOF_STATUS_LABEL[record.proofStatus]}
+                  </dd>
+                </div>
+                {record.cardInfo && hasCardInfo(record.cardInfo) && (
+                  <div className="flex justify-between gap-4">
+                    <dt className="shrink-0 text-ink-400">명함 정보</dt>
+                    <dd className="min-w-0 whitespace-pre-line break-words text-right font-medium text-ink-800">
+                      {[
+                        [record.cardInfo.name, record.cardInfo.title, record.cardInfo.company].filter(Boolean).join(' · '),
+                        record.cardInfo.phone,
+                        record.cardInfo.email,
+                        record.cardInfo.address,
+                      ]
+                        .filter(Boolean)
+                        .join('\n')}
+                    </dd>
+                  </div>
+                )}
+              </>
+            )}
             <div className="flex justify-between gap-4">
               <dt className="text-ink-400">주문 상태</dt>
               <dd className="font-semibold text-brand-700">{ORDER_STATUS_LABEL[record.status]}</dd>
@@ -610,7 +716,11 @@ function ReceiptView({
             <div className="flex justify-between gap-4">
               <dt className="shrink-0 text-ink-400">출고 예정</dt>
               <dd className="min-w-0 break-words text-right font-semibold text-mint">
-                {speed.emoji} {speed.short} · {formatDateLabel(record.dueShipDate)}까지
+                {isCard
+                  ? record.proofStatus === 'confirmed'
+                    ? `시안 확정 완료 · ${formatDateLabel(record.dueShipDate)}까지`
+                    : CARD_PROOF.leadLabel
+                  : `${speed.emoji} ${speed.short} · ${formatDateLabel(record.dueShipDate)}까지`}
               </dd>
             </div>
             {record.customerRequest && (
@@ -624,7 +734,7 @@ function ReceiptView({
           <div className="mt-4 rounded-xl bg-ink-50/80 px-4 py-3.5">
             <p className="break-words text-[11px] font-bold text-ink-600">
               {isCard
-                ? `명함 ${cardPaperOption(record.cardPaper ?? 'coating').label.replace(' 명함', '')} · ${record.cardQty}매`
+                ? `명함 ${cardSheetLabel(record.cardPaper)} · ${cardPrintOption(record.cardPrint).label} · ${record.cardQty}매`
                 : `A4 ${COLOR_LABEL[record.colorMode]} ${SIDES_LABEL[record.sides]} · ${record.pages}페이지 × ${record.copies}부 · ${binding.label}`}
             </p>
             <div className="mt-2 space-y-1.5 text-[11px] text-ink-600">
@@ -648,7 +758,7 @@ function ReceiptView({
               )}
               {record.pickup === 'delivery' && (
                 <div className="flex justify-between gap-3">
-                  <span>택배비 · 포장재비</span>
+                  <span>{isCard ? '배송비 (인쇄소 직배송)' : '택배비 · 포장재비'}</span>
                   <span className="num font-semibold text-ink-800">
                     {won(record.shippingFee + record.packagingFee)}
                   </span>
@@ -677,6 +787,18 @@ function ReceiptView({
           </p>
         </div>
       </div>
+
+      {isCard && (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-[11px] leading-relaxed text-amber-900">
+          <p className="font-bold">명함은 시안 확인 후 인쇄합니다</p>
+          <p className="mt-1">
+            사장님이 시안을 올리면 <strong className="font-semibold">내 주문 이력</strong>에서 미리보기로 확인하고{' '}
+            <strong className="font-semibold">[시안 확정(OK)]</strong>를 눌러 주세요. 확정 후 인쇄가 시작되어 영업일 2~3일 내 출고됩니다.
+          </p>
+          <p className="mt-1 font-semibold">{CARD_PROOF.revisionNotice}</p>
+          <p className="mt-1">{CARD_PROOF.confirmWarning}</p>
+        </div>
+      )}
 
       <div className="mt-4 flex flex-col gap-2 sm:flex-row">
         <button type="button" onClick={onViewHistory} data-testid="receipt-history-link" className="btn-primary flex-1 !py-3">

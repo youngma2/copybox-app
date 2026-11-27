@@ -841,3 +841,351 @@ revoke all on function public.copybox_purge_due_pdfs() from public;
 --   · Supabase Authentication > Multi-Factor Authentication 에서 MFA(TOTP)를 켜고
 --     사장님 계정에 등록 → 로그인 시 2단계 인증을 요구합니다.
 --   · 관리자 화면은 staff_members 검사 + RLS 로 이중 보호, 파일은 Presigned URL 만 사용.
+
+-- ============================================================================
+-- v4 추가분 (2026-11-28) — 명함 지류·면도수 단가, 시안 확인(확정 전 인쇄 금지),
+--                        시안 타임라인(card_proof_logs) 영구 보관
+-- ============================================================================
+-- 이미 v3 로 만든 프로젝트라면 이 블록만 실행하면 됩니다.
+
+-- 1) 명함 옵션 확장 (지류 정식 품명 · 인쇄 면·도수) ---------------------------
+alter table public.orders add column if not exists card_print text;
+alter table public.orders add column if not exists card_info jsonb;
+
+-- 예전 지류 구분(coating/noncoating/imported)을 제지사 품명 id 로 옮깁니다.
+update public.orders set card_paper = 'snow250'   where card_paper = 'coating';
+update public.orders set card_paper = 'snow300'   where card_paper = 'noncoating';
+update public.orders set card_paper = 'banu250'   where card_paper = 'imported';
+
+alter table public.orders drop constraint if exists orders_card_paper_check;
+alter table public.orders
+  add constraint orders_card_paper_check
+  check (card_paper is null or card_paper in ('snow250', 'snow300', 'banu250', 'arte310', 'randevu240'));
+
+alter table public.orders drop constraint if exists orders_card_print_check;
+alter table public.orders
+  add constraint orders_card_print_check
+  check (card_print is null or card_print in ('single1', 'single4', 'double1', 'double4'));
+
+comment on column public.orders.card_print is '명함 인쇄 면·도수 — 단면1도/단면4도/양면1도/양면4도';
+comment on column public.orders.card_info is '명함에 넣는 고객 정보 JSON (성함·직함·회사·연락처·이메일·주소)';
+
+-- business_cards(참고용 상세 표)의 지류 check 도 새 품명으로 맞춥니다.
+alter table public.business_cards drop constraint if exists business_cards_paper_check;
+alter table public.business_cards
+  add constraint business_cards_paper_check
+  check (paper in ('snow250', 'snow300', 'banu250', 'arte310', 'randevu240'));
+
+-- 2) 시안 확인 상태 ----------------------------------------------------------
+alter table public.orders add column if not exists proof_status text not null default 'confirmed';
+alter table public.orders add column if not exists proof_revision_count integer not null default 0;
+alter table public.orders add column if not exists proof_confirmed_at timestamptz;
+alter table public.orders add column if not exists proof_confirmed_version integer;
+
+-- 기존(v3 이전) 명함 주문은 시안 확인 단계가 없던 시절이므로 확정으로 두어 인쇄 흐름을 막지 않습니다.
+--   새 명함 주문은 앱이 proof_status='not_requested' 로 넣습니다.
+update public.orders
+set proof_confirmed_at = coalesce(proof_confirmed_at, created_at)
+where product = 'card' and proof_status = 'confirmed' and proof_confirmed_at is null;
+
+alter table public.orders drop constraint if exists orders_proof_status_check;
+alter table public.orders
+  add constraint orders_proof_status_check
+  check (proof_status in ('not_requested', 'requested', 'revision_requested', 'confirmed'));
+
+alter table public.orders drop constraint if exists orders_proof_revision_limit;
+alter table public.orders
+  add constraint orders_proof_revision_limit check (proof_revision_count between 0 and 2);
+
+comment on column public.orders.proof_status is '명함 시안 확인 상태 — 미요청/확인요청/수정요청/확정';
+comment on column public.orders.proof_revision_count is '고객 시안 수정 요청 횟수 (최대 2회)';
+comment on column public.orders.proof_confirmed_at is '고객이 [시안 확정(OK)]를 누른 시각 (수정 불가 기록)';
+
+create index if not exists orders_proof_status_idx on public.orders (proof_status, created_at desc);
+
+-- 3) 시안 타임라인 — 덮어쓰지 않고 쌓기만 하는 표 -------------------------
+create table if not exists public.card_proof_logs (
+  id                      uuid primary key default gen_random_uuid(),
+  order_id                uuid not null references public.orders (id) on delete restrict,
+  customer_id             uuid not null references public.customers (id) on delete restrict,
+  kind                    text not null check (kind in ('note', 'proof', 'revision', 'confirm')),
+  version                 integer check (version is null or version >= 1),
+  body                    text,
+  proof_url               text,
+  proof_file_name         text,
+  proof_file_type         text check (proof_file_type is null or proof_file_type in ('image', 'pdf')),
+  confirmed_proof_version integer,
+  actor                   text not null default 'system' check (actor in ('customer', 'admin', 'system')),
+  created_at              timestamptz not null default now()
+);
+
+comment on table public.card_proof_logs is
+  '명함 시안 타임라인 — 주문 메모·시안 버전(v1,v2,v3)·수정 요청 원문·확정 시각과 확정 시안을 덮어쓰지 않고 누적 보관 (분쟁 대비)';
+comment on column public.card_proof_logs.proof_url is '시안 이미지/PDF — 운영은 Cloudflare R2 경로, 시안 모드는 data URL';
+comment on column public.card_proof_logs.version is '올린 시안 버전. order_id 안에서 v1부터 증가하며 기존 행은 바꾸지 않습니다.';
+
+create index if not exists card_proof_logs_order_idx on public.card_proof_logs (order_id, created_at);
+create index if not exists card_proof_logs_customer_idx on public.card_proof_logs (customer_id, created_at desc);
+
+-- 이미 쌓인 기록은 고치거나 지우지 않습니다 (append-only).
+revoke update, delete on public.card_proof_logs from anon, authenticated;
+
+-- 주문과 손님이 어긋나면 저장 거부
+create or replace function public.copybox_check_card_proof_owner()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not exists (
+    select 1 from public.orders o where o.id = new.order_id and o.customer_id = new.customer_id
+  ) then
+    raise exception 'card_proof_logs.customer_id does not match orders.customer_id';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists card_proof_logs_check_owner on public.card_proof_logs;
+create trigger card_proof_logs_check_owner
+  before insert on public.card_proof_logs
+  for each row execute function public.copybox_check_card_proof_owner();
+
+-- 수정 요청은 주문당 2회까지 (DB에서도 막습니다)
+create or replace function public.copybox_limit_card_revisions()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.kind = 'revision'
+     and (select count(*) from public.card_proof_logs
+          where order_id = new.order_id and kind = 'revision') >= 2 then
+    raise exception '시안 수정은 최대 2회까지 가능합니다 (2회 초과 수정 불가).';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists card_proof_logs_limit_revisions on public.card_proof_logs;
+create trigger card_proof_logs_limit_revisions
+  before insert on public.card_proof_logs
+  for each row execute function public.copybox_limit_card_revisions();
+
+-- 확정된 주문에는 새 시안을 올릴 수 없습니다.
+create or replace function public.copybox_block_proof_after_confirm()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.kind = 'proof'
+     and exists (select 1 from public.orders o where o.id = new.order_id and o.proof_status = 'confirmed') then
+    raise exception '고객이 시안을 확정한 주문에는 새 시안을 올릴 수 없습니다.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists card_proof_logs_block_after_confirm on public.card_proof_logs;
+create trigger card_proof_logs_block_after_confirm
+  before insert on public.card_proof_logs
+  for each row execute function public.copybox_block_proof_after_confirm();
+
+-- 4) 시안 확정 전에는 명함 주문을 인쇄중 이후로 넘기지 못합니다 -----------------
+create or replace function public.copybox_require_card_proof()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.product = 'card'
+     and new.status in ('printing', 'done', 'shipped', 'delivered')
+     and new.proof_status <> 'confirmed' then
+    raise exception '명함 주문은 고객이 [시안 확정(OK)]를 누른 뒤에 인쇄를 시작할 수 있습니다.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists orders_require_card_proof on public.orders;
+create trigger orders_require_card_proof
+  before update on public.orders
+  for each row execute function public.copybox_require_card_proof();
+
+-- 5) RLS — 본인·사장님만 읽기, INSERT 는 사장님(시안·메모)과 RPC(수정·확정)만 ------
+alter table public.card_proof_logs enable row level security;
+
+drop policy if exists "card proof logs select own" on public.card_proof_logs;
+create policy "card proof logs select own"
+  on public.card_proof_logs for select
+  to authenticated
+  using (
+    exists (
+      select 1 from public.orders o
+      join public.customers c on c.id = o.customer_id
+      where o.id = card_proof_logs.order_id and c.auth_user_id = auth.uid()
+    )
+    or public.is_copybox_staff()
+  );
+
+drop policy if exists "card proof logs staff insert" on public.card_proof_logs;
+create policy "card proof logs staff insert"
+  on public.card_proof_logs for insert
+  to authenticated
+  with check (public.is_copybox_staff() and actor = 'admin');
+
+-- 손님의 수정 요청·확정은 아래 RPC(security definer)만 수행합니다.
+--   → 주문 행(proof_status)과 기록을 한 번에, 본인 확인 후에만 저장합니다.
+
+-- 6) 고객 [수정 요청] RPC ---------------------------------------------------
+create or replace function public.copybox_request_card_revision(p_order_id uuid, p_body text)
+returns public.card_proof_logs
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_order  public.orders%rowtype;
+  v_owner  uuid;
+  v_count  integer;
+  v_version integer;
+  v_log    public.card_proof_logs%rowtype;
+begin
+  select * into v_order from public.orders where id = p_order_id for update;
+  if not found then raise exception '주문을 찾을 수 없습니다.'; end if;
+  select auth_user_id into v_owner from public.customers where id = v_order.customer_id;
+  if v_owner is distinct from auth.uid() and not public.is_copybox_staff() then
+    raise exception '본인 주문에만 수정 요청을 할 수 있습니다.';
+  end if;
+  if v_order.product <> 'card' then raise exception '명함 주문에서만 시안 수정을 요청할 수 있습니다.'; end if;
+  if v_order.proof_status = 'confirmed' then
+    raise exception '이미 시안을 확정한 주문입니다. 확정 후에는 수정·취소·환불이 불가합니다.';
+  end if;
+  if v_order.proof_status = 'not_requested' then
+    raise exception '아직 시안이 올라오지 않았습니다.';
+  end if;
+  if coalesce(btrim(p_body), '') = '' then raise exception '수정하실 내용을 적어 주세요.'; end if;
+
+  select count(*) into v_count from public.card_proof_logs
+   where order_id = p_order_id and kind = 'revision';
+  if v_count >= 2 then raise exception '시안 수정은 최대 2회까지 가능합니다 (2회 초과 수정 불가).'; end if;
+
+  select coalesce(max(version), 0) into v_version from public.card_proof_logs
+   where order_id = p_order_id and kind = 'proof';
+
+  insert into public.card_proof_logs (order_id, customer_id, kind, version, body, actor)
+  values (p_order_id, v_order.customer_id, 'revision', nullif(v_version, 0), btrim(p_body), 'customer')
+  returning * into v_log;
+
+  update public.orders
+     set proof_revision_count = v_count + 1,
+         proof_status = 'revision_requested'
+   where id = p_order_id;
+
+  return v_log;
+end;
+$$;
+
+revoke all on function public.copybox_request_card_revision(uuid, text) from public;
+grant execute on function public.copybox_request_card_revision(uuid, text) to authenticated;
+
+-- 7) 고객 [시안 확정(OK)] RPC — 확정 시각·확정 시안을 그대로 보관 ---------------
+create or replace function public.copybox_confirm_card_proof(p_order_id uuid)
+returns public.card_proof_logs
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_order  public.orders%rowtype;
+  v_owner  uuid;
+  v_proof  public.card_proof_logs%rowtype;
+  v_log    public.card_proof_logs%rowtype;
+begin
+  select * into v_order from public.orders where id = p_order_id for update;
+  if not found then raise exception '주문을 찾을 수 없습니다.'; end if;
+  select auth_user_id into v_owner from public.customers where id = v_order.customer_id;
+  if v_owner is distinct from auth.uid() and not public.is_copybox_staff() then
+    raise exception '본인 주문의 시안만 확정할 수 있습니다.';
+  end if;
+  if v_order.product <> 'card' then raise exception '명함 주문에서만 시안을 확정할 수 있습니다.'; end if;
+  if v_order.proof_status = 'confirmed' then raise exception '이미 시안을 확정한 주문입니다.'; end if;
+
+  select * into v_proof from public.card_proof_logs
+   where order_id = p_order_id and kind = 'proof'
+   order by version desc nulls last, created_at desc limit 1;
+  if not found then raise exception '아직 확인하실 시안이 없습니다.'; end if;
+
+  insert into public.card_proof_logs
+    (order_id, customer_id, kind, version, body, proof_url, proof_file_name, proof_file_type, confirmed_proof_version, actor)
+  values
+    (p_order_id, v_order.customer_id, 'confirm', v_proof.version,
+     '고객 시안 확정 (v' || coalesce(v_proof.version, 1) || ')',
+     v_proof.proof_url, v_proof.proof_file_name, v_proof.proof_file_type,
+     v_proof.version, 'customer')
+  returning * into v_log;
+
+  update public.orders
+     set proof_status = 'confirmed',
+         proof_confirmed_at = now(),
+         proof_confirmed_version = v_proof.version,
+         due_ship_date = (now() + interval '3 days')::date
+   where id = p_order_id;
+
+  return v_log;
+end;
+$$;
+
+revoke all on function public.copybox_confirm_card_proof(uuid) from public;
+grant execute on function public.copybox_confirm_card_proof(uuid) to authenticated;
+
+-- 8) 회원 탈퇴 RPC 보완 — 명함 정보·시안 파일도 파기 (기록만 남김) -----------------
+create or replace function public.copybox_delete_my_data(p_customer_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_owner uuid;
+begin
+  select auth_user_id into v_owner from public.customers where id = p_customer_id;
+  if v_owner is distinct from auth.uid() and not public.is_copybox_staff() then
+    raise exception '본인 정보만 삭제할 수 있습니다.';
+  end if;
+
+  update public.orders
+    set address = null, customer_request = null, card_text = null, card_info = null, updated_at = now()
+    where customer_id = p_customer_id;
+  delete from public.order_files   where customer_id = p_customer_id;
+  delete from public.pickup_photos where customer_id = p_customer_id;
+  update public.order_messages set body = '(탈퇴로 삭제됨)' where customer_id = p_customer_id;
+  update public.reviews set body = '탈퇴한 고객의 리뷰입니다.', photo_url = null where customer_id = p_customer_id;
+
+  -- 시안 파일에도 성함·연락처가 들어가므로 파일은 지우고, 타임라인 기록만 남깁니다.
+  update public.card_proof_logs
+    set proof_url = null,
+        proof_file_name = null,
+        body = case when kind in ('note', 'revision') then '(탈퇴로 삭제됨)' else body end
+    where customer_id = p_customer_id;
+
+  update public.customers
+    set name = '탈퇴한 고객', phone = '00000000000', email = null,
+        deleted_at = now(), updated_at = now()
+    where id = p_customer_id;
+end;
+$$;
+
+revoke all on function public.copybox_delete_my_data(uuid) from public;
+grant execute on function public.copybox_delete_my_data(uuid) to authenticated;
+
+-- 9) 단가·배송 메모 ---------------------------------------------------------
+-- · 명함 판매가 = 지류 기준가(단면 4도) + 면·도수 차액 → 앱 src/config/business-card.ts 가 단일 출처.
+-- · 명함 배송비 3,000원 (포장재비 없음) / A4 출력 택배 4,000원 + 포장재비 1,000원.
+--   orders_total_matches_prices 는 shipping_fee + packaging_fee 를 그대로 쓰므로 두 상품 모두 만족합니다.
+-- · 여유 제작 특가(인쇄비 10% 할인)는 A4 출력 전용입니다. 명함 주문은 delivery_speed='normal', discount_amount=0.

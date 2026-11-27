@@ -15,12 +15,30 @@ export const PICKUP_LABEL: Record<PickupMethod, string> = {
   delivery: '택배 · 퀵',
 };
 
-/** 기본 택배비 (원) */
+/** 기본 택배비 (원) — A4 출력 */
 export const SHIPPING_FEE = 4000;
-/** 박스·포장재비 (원) */
+/** 박스·포장재비 (원) — A4 출력 */
 export const PACKAGING_FEE = 1000;
 /** 기본 택배비 + 포장비 */
 export const SHIPPING_TOTAL = SHIPPING_FEE + PACKAGING_FEE;
+
+/** 명함 배송비 (원) — 인쇄소 직배송이라 포장재비 없이 배송비만 받습니다. */
+export const CARD_SHIPPING_FEE = 3000;
+export const CARD_PACKAGING_FEE = 0;
+
+export const CARD_SHIPPING_NOTE =
+  '명함은 인쇄소에서 바로 보내 드려 포장재비 없이 배송비 3,000원만 받습니다. · 제주·도서산간은 별도 안내 · 방문 수령 0원';
+
+/** 상품별 수령 비용 — 명함은 배송비 3,000원, A4는 택배 4,000원 + 포장 1,000원 */
+export function shippingFeesFor(
+  product: 'print' | 'card',
+  pickup: PickupMethod,
+): { shippingFee: number; packagingFee: number; total: number } {
+  if (pickup !== 'delivery') return { shippingFee: 0, packagingFee: 0, total: 0 };
+  const shippingFee = product === 'card' ? CARD_SHIPPING_FEE : SHIPPING_FEE;
+  const packagingFee = product === 'card' ? CARD_PACKAGING_FEE : PACKAGING_FEE;
+  return { shippingFee, packagingFee, total: shippingFee + packagingFee };
+}
 
 export const SHIPPING_NOTE =
   '기본 택배비 4,000원 + 박스·포장재비 1,000원 = 5,000원 · 제주·도서산간 및 추가 박스는 별도 안내 · 방문 수령 0원 · 퀵은 착불';
@@ -92,6 +110,15 @@ export function addBusinessDays(base: Date, days: number): Date {
 export function dueShipDate(createdAt: Date | string, speed: DeliverySpeed): Date {
   const base = typeof createdAt === 'string' ? new Date(createdAt) : createdAt;
   return addBusinessDays(base, deliverySpeedOption(speed).businessDays);
+}
+
+/**
+ * 명함 출고 마감일 — 시안 확정일(확정 전이면 오늘)부터 영업일 2~3일.
+ * 확정 전에는 "시안 확정 후 영업일 2~3일 출고"로만 안내합니다.
+ */
+export function cardDueShipDate(from: Date | string, businessDays = 3): Date {
+  const base = typeof from === 'string' ? new Date(from) : from;
+  return addBusinessDays(base, businessDays);
 }
 
 /** 출고·배송 완료 후 PDF 원본을 파기하는 날 (14일 뒤) */

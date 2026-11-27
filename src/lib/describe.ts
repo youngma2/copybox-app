@@ -1,4 +1,4 @@
-import { CARD_SPEC, cardPaperOption } from '../config/business-card';
+import { CARD_SPEC, cardPrintOption, cardSheetLabel } from '../config/business-card';
 import { DELIVERY_SPEED_OPTIONS } from '../config/delivery';
 import { BINDING_OPTIONS, COLOR_LABEL, SIDES_LABEL } from '../config/pricing';
 import type { Order } from './storage';
@@ -13,6 +13,7 @@ type OrderOptionFields = Pick<
   | 'copies'
   | 'binding'
   | 'cardPaper'
+  | 'cardPrint'
   | 'cardQty'
 >;
 
@@ -20,13 +21,12 @@ export function bindingLabel(id: OrderOptionFields['binding']): string {
   return BINDING_OPTIONS.find((option) => option.id === id)?.label ?? '제본 없음';
 }
 
-/** "A4 · 흑백 · 단면 · 3페이지 × 1부 · 스프링" / "명함 코팅 · 90×50mm · 200매" */
+/** "A4 · 흑백 · 단면 · 3페이지 × 1부 · 스프링" / "명함 스노우지 250g · 단면 4도(컬러) · 90×50mm · 200매" */
 export function describeOrderOptions(order: OrderOptionFields): string {
   if (order.product === 'card') {
-    const paper = cardPaperOption(order.cardPaper ?? 'coating');
-    return `명함 ${paper.label.replace(' 명함', '')} · ${CARD_SPEC.widthMm}×${CARD_SPEC.heightMm}mm · ${
-      order.cardQty ?? 200
-    }매`;
+    return `명함 ${cardSheetLabel(order.cardPaper)} · ${cardPrintOption(order.cardPrint).label} · ${
+      CARD_SPEC.widthMm
+    }×${CARD_SPEC.heightMm}mm · ${order.cardQty ?? 200}매`;
   }
   return [
     order.paperSize,

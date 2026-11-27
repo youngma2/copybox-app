@@ -83,7 +83,32 @@ export default function ProductPage({
   return (
     <div data-testid={`product-page-${product}`}>
       <ProductHero product={product} onScrollTo={scrollTo} />
-      <EcoBanner onEcoQuote={onEcoQuote} />
+      {!isCard && <EcoBanner onEcoQuote={onEcoQuote} />}
+
+      {isCard && (
+        <section className="container-page pt-3">
+          <div
+            data-testid="card-proof-banner"
+            className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-4 shadow-card sm:px-5"
+          >
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-lg">명함</span>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold tracking-[0.16em] text-amber-700">PROOF FIRST</p>
+                <p className="mt-0.5 break-words text-[14px] font-extrabold leading-snug text-ink-900">
+                  명함은 시안 확정 후 영업일 2~3일 출고입니다 (시안 확인 필수)
+                </p>
+                <p className="mt-0.5 break-words text-[11px] leading-relaxed text-ink-600">
+                  주문 접수 → 시안 확인 요청 → 고객 [시안 확정(OK)] 후 인쇄·재단. A4 출력의 1~2일 출고와 다릅니다.
+                </p>
+                <p className="mt-1 break-words text-[11px] font-semibold text-amber-800">
+                  ※ 시안 수정은 최대 2회까지 가능합니다 (2회 초과 수정 불가)
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section id="quote" className="container-page pt-12 sm:pt-16">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -143,7 +168,7 @@ export default function ProductPage({
 
       <PriceTable product={product} />
 
-      <EcoSection onEcoQuote={onEcoQuote} />
+      {!isCard && <EcoSection onEcoQuote={onEcoQuote} />}
 
       <StoreInfo onSampleAction={onSampleAction} />
 

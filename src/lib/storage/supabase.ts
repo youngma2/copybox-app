@@ -10,10 +10,19 @@
 import { createOrderNumber, phoneDigits } from '../order';
 import { pdfPurgeDate } from '../../config/delivery';
 import { asOrderStatus, asPaymentStatus, type OrderStatus, type PaymentMethod } from '../../config/status';
-import type { CardPaper } from '../../config/business-card';
+import {
+  isCardPrintMode,
+  isCardPaper,
+  type CardInfo,
+  type CardPaper,
+  type CardPrintMode,
+  type CardProofStatus,
+} from '../../config/business-card';
 import type { BindingId, ColorMode, Sides } from '../../config/pricing';
 import {
   StoreError,
+  type CardProofLog,
+  type CardProofUploadInput,
   type CopyboxStore,
   type Customer,
   type Order,
@@ -86,8 +95,14 @@ interface OrderRow {
   copies: number;
   binding: string;
   card_paper: string | null;
+  card_print: string | null;
   card_qty: number | null;
   card_text: string | null;
+  card_info: CardInfo | null;
+  proof_status: string | null;
+  proof_revision_count: number | null;
+  proof_confirmed_at: string | null;
+  proof_confirmed_version: number | null;
   page_unit_price: number;
   binding_unit_price: number;
   print_cost: number | null;
@@ -144,6 +159,20 @@ interface ReviewRow {
   created_at: string;
 }
 
+interface CardProofLogRow {
+  id: string;
+  order_id: string;
+  customer_id: string;
+  kind: string;
+  version: number | null;
+  body: string | null;
+  proof_url: string | null;
+  proof_file_name: string | null;
+  proof_file_type: string | null;
+  actor: string;
+  created_at: string;
+}
+
 function mapCustomer(row: CustomerRow): Customer {
   return {
     id: row.id,
@@ -196,9 +225,15 @@ function mapOrder(row: OrderRow): Order {
     pages: row.pages,
     copies: row.copies,
     binding,
-    cardPaper: (row.card_paper as CardPaper | null) ?? null,
+    cardPaper: isCardPaper(row.card_paper) ? (row.card_paper as CardPaper) : null,
+    cardPrint: isCardPrintMode(row.card_print) ? (row.card_print as CardPrintMode) : null,
     cardQty: row.card_qty ?? null,
     cardText: row.card_text ?? null,
+    cardInfo: (row.card_info as CardInfo | null) ?? null,
+    proofStatus: (row.proof_status as CardProofStatus) ?? (row.product === 'card' ? 'not_requested' : 'confirmed'),
+    proofRevisionCount: row.proof_revision_count ?? 0,
+    proofConfirmedAt: row.proof_confirmed_at,
+    proofConfirmedVersion: row.proof_confirmed_version,
     pageUnitPrice: row.page_unit_price,
     bindingUnitPrice: row.binding_unit_price,
     printCost: row.print_cost ?? row.page_unit_price * row.pages * row.copies,
@@ -244,6 +279,23 @@ function mapReview(row: ReviewRow): Review {
     visible: row.visible,
     adminReply: row.admin_reply,
     adminReplyAt: row.admin_reply_at,
+    createdAt: row.created_at,
+  };
+}
+
+function mapCardProofLog(row: CardProofLogRow): CardProofLog {
+  const kind = row.kind === 'proof' || row.kind === 'revision' || row.kind === 'confirm' ? row.kind : 'note';
+  return {
+    id: row.id,
+    orderId: row.order_id,
+    customerId: row.customer_id,
+    kind,
+    version: row.version,
+    body: row.body,
+    proofUrl: row.proof_url,
+    proofFileName: row.proof_file_name,
+    proofFileType: row.proof_file_type,
+    actor: row.actor === 'admin' ? 'admin' : row.actor === 'system' ? 'system' : 'customer',
     createdAt: row.created_at,
   };
 }
@@ -304,7 +356,7 @@ const supabaseStore: CopyboxStore = {
     // Supabase 모드의 세션은 로그인 access token 이 담당합니다.
   },
 
-  async ensureCustomer({ name, phone, provider }) {
+  async ensureCustomer({ name, phone, provider, email }) {
     const normalized = name.trim();
     const digits = phoneDigits(phone);
     const rows = await rest<CustomerRow[]>(
@@ -312,10 +364,20 @@ const supabaseStore: CopyboxStore = {
         normalized,
       )}&deleted_at=is.null&limit=1`,
     );
-    if (rows[0]) return mapCustomer(rows[0]);
+    if (rows[0]) {
+      const found = mapCustomer(rows[0]);
+      const trimmedEmail = email?.trim() ?? '';
+      if (trimmedEmail && found.email !== trimmedEmail) {
+        await rest<CustomerRow[]>(`customers?id=eq.${encodeURIComponent(found.id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ email: trimmedEmail }),
+        }).catch(() => undefined);
+      }
+      return found;
+    }
     const created = await rest<CustomerRow[]>('customers', {
       method: 'POST',
-      body: JSON.stringify({ name: normalized, phone: digits, provider }),
+      body: JSON.stringify({ name: normalized, phone: digits, provider, email: email?.trim() || null }),
     });
     if (!created[0]) throw new StoreError('손님 정보를 저장하지 못했습니다.');
     return mapCustomer(created[0]);
@@ -372,8 +434,11 @@ const supabaseStore: CopyboxStore = {
         copies: quote.copies,
         binding: quote.binding.id,
         card_paper: quote.product === 'card' ? quote.cardPaper : null,
+        card_print: quote.product === 'card' ? quote.cardPrint : null,
         card_qty: quote.product === 'card' ? quote.cardQty : null,
         card_text: quote.product === 'card' ? quote.cardText.trim() || null : null,
+        card_info: quote.product === 'card' ? quote.cardInfo : null,
+        proof_status: quote.product === 'card' ? 'not_requested' : 'confirmed',
         page_unit_price: quote.unitPrice,
         binding_unit_price: quote.binding.price,
         print_cost: quote.printCost,
@@ -409,6 +474,27 @@ const supabaseStore: CopyboxStore = {
       files = fileRows.map(mapFile);
     }
 
+    if (quote.product === 'card') {
+      // ⑦ 주문 메모·명함 정보를 시안 타임라인의 첫 기록으로 남깁니다.
+      const noteBody = [
+        quote.cardText.trim() ? `명함 문구: ${quote.cardText.trim()}` : '',
+        quote.cardInfo ? `명함 정보: ${JSON.stringify(quote.cardInfo)}` : '',
+        input.customerRequest.trim() ? `주문 메모: ${input.customerRequest.trim()}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+      await rest<CardProofLogRow[]>('card_proof_logs', {
+        method: 'POST',
+        body: JSON.stringify({
+          order_id: row.id,
+          customer_id: input.customerId,
+          kind: 'note',
+          body: noteBody || null,
+          actor: 'customer',
+        }),
+      }).catch(() => undefined);
+    }
+
     return { ...mapOrder(row), files };
   },
 
@@ -422,7 +508,6 @@ const supabaseStore: CopyboxStore = {
       body: JSON.stringify(body),
     });
   },
-
   async confirmPayment(orderId) {
     await rest<OrderRow[]>(`orders?id=eq.${encodeURIComponent(orderId)}`, {
       method: 'PATCH',
@@ -548,6 +633,71 @@ const supabaseStore: CopyboxStore = {
       note: row.note,
       createdAt: row.created_at,
     }));
+  },
+
+  async listCardProofLogs(filter) {
+    const params: string[] = ['select=*', 'order=created_at.asc', 'limit=500'];
+    if (filter?.orderId) params.push(`order_id=eq.${encodeURIComponent(filter.orderId)}`);
+    if (filter?.customerId) params.push(`customer_id=eq.${encodeURIComponent(filter.customerId)}`);
+    const rows = await rest<CardProofLogRow[]>(`card_proof_logs?${params.join('&')}`);
+    return rows.map(mapCardProofLog);
+  },
+
+  async uploadCardProof(orderId, input: CardProofUploadInput) {
+    const orderRows = await rest<OrderRow[]>(
+      `orders?select=id,customer_id,product,proof_status&id=eq.${encodeURIComponent(orderId)}&limit=1`,
+    );
+    const order = orderRows[0];
+    if (!order) throw new StoreError('해당 주문을 찾을 수 없습니다.');
+    if (order.product !== 'card') throw new StoreError('명함 주문에만 시안을 올릴 수 있습니다.');
+    if (order.proof_status === 'confirmed') {
+      throw new StoreError('고객이 시안을 확정한 주문에는 새 시안을 올릴 수 없습니다. 새 주문으로 진행해 주세요.');
+    }
+    const existing = await rest<CardProofLogRow[]>(
+      `card_proof_logs?select=version&order_id=eq.${encodeURIComponent(orderId)}&kind=eq.proof`,
+    );
+    const version = existing.reduce((max, row) => Math.max(max, row.version ?? 0), 0) + 1;
+    const rows = await rest<CardProofLogRow[]>('card_proof_logs', {
+      method: 'POST',
+      body: JSON.stringify({
+        order_id: orderId,
+        customer_id: order.customer_id,
+        kind: 'proof',
+        version,
+        body: `${version}차 시안 업로드`,
+        proof_url: input.fileUrl,
+        proof_file_name: input.fileName,
+        proof_file_type: input.fileType,
+        actor: 'admin',
+      }),
+    });
+    await rest<OrderRow[]>(`orders?id=eq.${encodeURIComponent(orderId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ proof_status: 'requested' }),
+    });
+    if (!rows[0]) throw new StoreError('시안을 저장하지 못했습니다.');
+    return mapCardProofLog(rows[0]);
+  },
+
+  async requestCardRevision(orderId, body) {
+    // 손님은 주문 행을 직접 고칠 수 없어 RPC(security definer)로 기록·상태를 함께 저장합니다.
+    const trimmed = body.trim();
+    if (!trimmed) throw new StoreError('수정하실 내용을 적어 주세요.');
+    const rows = await rest<CardProofLogRow[]>('rpc/copybox_request_card_revision', {
+      method: 'POST',
+      body: JSON.stringify({ p_order_id: orderId, p_body: trimmed.slice(0, 1000) }),
+    });
+    if (!rows[0]) throw new StoreError('수정 요청을 저장하지 못했습니다.');
+    return mapCardProofLog(rows[0]);
+  },
+
+  async confirmCardProof(orderId) {
+    const rows = await rest<CardProofLogRow[]>('rpc/copybox_confirm_card_proof', {
+      method: 'POST',
+      body: JSON.stringify({ p_order_id: orderId }),
+    });
+    if (!rows[0]) throw new StoreError('시안 확정을 저장하지 못했습니다.');
+    return mapCardProofLog(rows[0]);
   },
 
   async deleteMyData(customerId) {
