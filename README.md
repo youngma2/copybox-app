@@ -44,9 +44,10 @@ npm run preview    # 빌드 미리보기 (127.0.0.1:4175/copybox-app/)
 
 ```bash
 export LD_LIBRARY_PATH=/workspace/.tools/chrome/lib
-python3 scripts/verify_product_tabs.py            # 상품 탭·페이지 분리 90개 (dist 를 직접 서빙)
-python3 scripts/verify_copybox_v3.py http://127.0.0.1:4175/copybox-app/   # 기존 v3 기능 72개
+python3 scripts/verify_product_tabs.py            # 상품 탭·페이지 분리 94개 (dist 를 직접 서빙)
 ```
+
+`scripts/verify_copybox_v3.py` · `verify_copybox_v2.py` 는 탭 구조 이전(단일 견적 화면) 기준의 기록용 검증입니다.
 
 ## 구조 (3단 분리)
 
@@ -86,8 +87,8 @@ copybox-app/
       PickupPhotos / OrderMessages / StatusBadge
     App.tsx                  # 해시 라우팅·상품 전환·손님 세션·관리자 데이터
   supabase/schema.sql        # 카피박스 전용 스키마 v3 (공부 체크 앱과 완전 분리)
-  scripts/verify_product_tabs.py # 상품 탭·페이지 검증 90개
-  scripts/verify_copybox_v3.py   # 기능 검증 72개
+  scripts/verify_product_tabs.py # 상품 탭·페이지 검증 94개
+  scripts/preview_server.py      # dist 를 /copybox-app/ 으로 서빙하는 테스트 서버
 ```
 
 ## 상품 페이지 추가하는 법
