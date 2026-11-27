@@ -17,6 +17,8 @@ interface UploaderProps {
   pages: number;
   onFileChange: (file: UploadedFileMeta | null) => void;
   onPagesChange: (pages: number) => void;
+  /** print: 페이지 수 자동 인식 / card: 디자인 파일(페이지 개념 없음) */
+  variant?: 'print' | 'card';
 }
 
 const ACCEPT =
@@ -37,7 +39,8 @@ const KIND_STYLE: Record<FileKind, { badge: string; label: string }> = {
   image: { badge: 'bg-amber-50 text-amber-600', label: '이미지' },
 };
 
-export default function Uploader({ file, pages, onFileChange, onPagesChange }: UploaderProps) {
+export default function Uploader({ file, pages, onFileChange, onPagesChange, variant = 'print' }: UploaderProps) {
+  const isCard = variant === 'card';
   const inputRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
   const [dragging, setDragging] = useState(false);
@@ -62,6 +65,13 @@ export default function Uploader({ file, pages, onFileChange, onPagesChange }: U
     }
 
     const kind = detectKind(candidate.name);
+
+    if (isCard) {
+      onFileChange({ name: candidate.name, size: candidate.size, kind, pages: null, autoDetected: false });
+      // 같은 파일을 다시 고를 때도 change 이벤트가 나도록 입력값을 비웁니다.
+      if (inputRef.current) inputRef.current.value = '';
+      return;
+    }
 
     if (kind !== 'pdf') {
       onFileChange({ name: candidate.name, size: candidate.size, kind, pages: null, autoDetected: false });
@@ -89,7 +99,7 @@ export default function Uploader({ file, pages, onFileChange, onPagesChange }: U
 
   function clearFile() {
     onFileChange(null);
-    onPagesChange(1);
+    if (!isCard) onPagesChange(1);
     setError(null);
     setNotice(null);
     if (inputRef.current) inputRef.current.value = '';
@@ -109,9 +119,11 @@ export default function Uploader({ file, pages, onFileChange, onPagesChange }: U
           </span>
           <div>
             <h3 id="upload-title" className="text-[15px] font-bold tracking-tight text-ink-900">
-              인쇄할 파일
+              {isCard ? '명함 디자인 파일' : '인쇄할 파일'}
             </h3>
-            <p className="text-[11px] text-ink-400">PDF는 페이지 수를 자동으로 인식해요</p>
+            <p className="text-[11px] text-ink-400">
+              {isCard ? 'PDF · AI · JPG · PNG · 없으면 문구만 적어 주세요' : 'PDF는 페이지 수를 자동으로 인식해요'}
+            </p>
           </div>
         </div>
         {file && (
@@ -132,7 +144,7 @@ export default function Uploader({ file, pages, onFileChange, onPagesChange }: U
           accept={ACCEPT}
           className="sr-only"
           data-testid="file-input"
-          aria-label="인쇄할 파일 선택"
+          aria-label={isCard ? '명함 디자인 파일 선택' : '인쇄할 파일 선택'}
           onChange={(event) => {
             const picked = event.target.files?.[0];
             if (picked) void handleFile(picked);
@@ -143,7 +155,7 @@ export default function Uploader({ file, pages, onFileChange, onPagesChange }: U
           role="button"
           tabIndex={0}
           data-testid="dropzone"
-          aria-label="파일을 끌어다 놓거나 눌러서 선택"
+          aria-label={isCard ? '명함 디자인 파일을 끌어다 놓거나 눌러서 선택' : '파일을 끌어다 놓거나 눌러서 선택'}
           onClick={openPicker}
           onKeyDown={(event) => {
             if (event.key === 'Enter' || event.key === ' ') {
@@ -208,7 +220,7 @@ export default function Uploader({ file, pages, onFileChange, onPagesChange }: U
                     </span>
                   ) : (
                     <span className="rounded-full bg-amber-50 px-2 py-0.5 font-bold text-amber-600">
-                      페이지 직접 입력
+                      {isCard ? '디자인 파일' : '페이지 직접 입력'}
                     </span>
                   )}
                 </div>
@@ -232,13 +244,14 @@ export default function Uploader({ file, pages, onFileChange, onPagesChange }: U
                 <IconUpload className="h-6 w-6" />
               </span>
               <p className="mt-3 text-[15px] font-bold text-ink-900">
-                PDF를 여기로 끌어다 놓으세요
+                {isCard ? '명함 디자인 파일을 올려 주세요' : 'PDF를 여기로 끌어다 놓으세요'}
               </p>
               <p className="mt-1 text-xs text-ink-400">
                 또는 <span className="font-semibold text-brand-600">클릭해서 파일 선택</span>
+                {isCard ? ' · 없으면 아래에서 문구만 적어 주세요' : ''}
               </p>
               <div className="mt-4 flex flex-wrap justify-center gap-1.5">
-                {['PDF', 'HWP', 'DOCX', 'JPG · PNG'].map((label) => (
+                {(isCard ? ['PDF', 'AI', 'JPG · PNG'] : ['PDF', 'HWP', 'DOCX', 'JPG · PNG']).map((label) => (
                   <span key={label} className="rounded-md border border-ink-100 bg-white px-2 py-0.5 text-[10px] font-semibold text-ink-400">
                     {label}
                   </span>
@@ -263,6 +276,11 @@ export default function Uploader({ file, pages, onFileChange, onPagesChange }: U
           <p className="mt-3 text-[11px] leading-relaxed text-ink-400">
             총 <strong className="font-bold text-ink-800">{file.pages}페이지</strong>로 계산했어요. 페이지 수는 아래
             옵션에서 직접 고칠 수 있습니다. (현재 견적 기준 {pages}면)
+          </p>
+        ) : null}
+        {isCard && file ? (
+          <p className="mt-3 text-[11px] leading-relaxed text-ink-400">
+            디자인 파일은 접수 확인용으로 이름·형식만 기록합니다. 시안이 필요하면 아래 문구도 함께 남겨 주세요.
           </p>
         ) : null}
       </div>

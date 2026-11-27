@@ -128,7 +128,7 @@ export default function OrderSection({
             <div>
               <p className="text-xs font-bold tracking-[0.18em] text-brand-600">ORDER</p>
               <h2 className="mt-2 text-[26px] font-extrabold tracking-tight text-ink-900 sm:text-[32px]">
-                견적 · 주문 접수
+                {quote.product === 'card' ? '명함 주문 접수' : 'A4 출력·제본 주문 접수'}
               </h2>
               <p className="mt-2 text-sm leading-relaxed text-ink-600">
                 연락처와 수령 방법만 남겨 주세요. 결제까지 마치면 사장님 주문 목록에 바로 올라갑니다.
@@ -290,7 +290,11 @@ export default function OrderSection({
                     rows={3}
                     value={notes}
                     onChange={(event) => setNotes(event.target.value)}
-                    placeholder="예: 표지는 컬러로, 나머지는 흑백 / 오늘 5시까지 찾으러 갈게요"
+                    placeholder={
+                      quote.product === 'card'
+                        ? '예: 문구는 위에 적었어요. 로고 파일이 있는데 카톡으로 보내도 될까요?'
+                        : '예: 표지는 컬러로, 나머지는 흑백 / 오늘 5시까지 찾으러 갈게요'
+                    }
                     className="field resize-none"
                   />
                 </div>
@@ -335,6 +339,13 @@ export default function OrderSection({
                   ) : (
                     <p className="text-[12px] text-ink-400">
                       {quote.product === 'card' ? '명함 · 문구만 접수' : '파일 미첨부 · 페이지 수 직접 입력'}
+                    </p>
+                  )}
+                  {quote.product === 'card' && quote.cardText.trim() !== '' && (
+                    <p className="mt-2 break-words rounded-lg bg-ink-50 px-2.5 py-2 text-[11px] leading-relaxed text-ink-600">
+                      <span className="font-semibold text-ink-800">명함 문구</span>
+                      <br />
+                      {quote.cardText.trim()}
                     </p>
                   )}
                   <dl className="mt-3 space-y-2 text-[12px]">
@@ -578,6 +589,14 @@ function ReceiptView({
                     : '미첨부'}
               </dd>
             </div>
+            {record.cardText && (
+              <div className="flex justify-between gap-4">
+                <dt className="shrink-0 text-ink-400">명함 문구</dt>
+                <dd className="min-w-0 whitespace-pre-line break-words text-right font-medium text-ink-800">
+                  {record.cardText}
+                </dd>
+              </div>
+            )}
             <div className="flex justify-between gap-4">
               <dt className="text-ink-400">주문 상태</dt>
               <dd className="font-semibold text-brand-700">{ORDER_STATUS_LABEL[record.status]}</dd>

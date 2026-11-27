@@ -1,8 +1,10 @@
 import { PROVIDER_LABEL } from '../lib/auth';
 import type { Customer } from '../lib/storage';
+import { PRODUCT_PAGES } from '../config/products';
+import { isProductView, type View } from '../lib/routing';
 import { IconPhone, IconUser } from './Icons';
 
-export type View = 'shop' | 'history' | 'admin';
+export type { View } from '../lib/routing';
 
 interface HeaderProps {
   view: View;
@@ -12,20 +14,24 @@ interface HeaderProps {
   onLogout: () => void;
 }
 
-const TABS: { id: View; label: string; short: string }[] = [
-  { id: 'shop', label: '견적 · 주문', short: '견적' },
-  { id: 'history', label: '내 주문 이력', short: '주문 이력' },
-  { id: 'admin', label: '관리자', short: '관리자' },
+const TABS: { id: View; label: string; short: string; testId: string }[] = [
+  { id: 'print', label: PRODUCT_PAGES.print.navLabel, short: PRODUCT_PAGES.print.navShort, testId: 'print' },
+  { id: 'card', label: PRODUCT_PAGES.card.navLabel, short: PRODUCT_PAGES.card.navShort, testId: 'card' },
+  { id: 'history', label: '내 주문 이력', short: '주문 이력', testId: 'history' },
+  { id: 'admin', label: '관리자', short: '관리자', testId: 'admin' },
 ];
 
 export default function Header({ view, onNavigate, user, onLoginClick, onLogout }: HeaderProps) {
+  const productTab: View = isProductView(view) ? view : 'print';
+  const ticker = PRODUCT_PAGES[isProductView(view) ? view : 'print'].ticker;
+
   return (
     <>
       <div className="bg-ink-900 text-white">
         <div className="container-page flex h-9 items-center justify-between gap-3 overflow-hidden text-[11px] sm:text-xs">
           <p className="min-w-0 truncate text-white/75">
             <span className="mr-1.5 rounded-full bg-sun px-1.5 py-0.5 font-bold text-ink-900">시안</span>
-            A4 흑백 단면 50원 · 양면 40원 · 🌿 여유특가 인쇄비 10% 할인
+            {ticker}
           </p>
           <p className="hidden shrink-0 text-white/50 sm:block">비회원도 주문 가능</p>
         </div>
@@ -36,7 +42,7 @@ export default function Header({ view, onNavigate, user, onLoginClick, onLogout 
           <div className="flex h-16 items-center justify-between gap-2">
             <button
               type="button"
-              onClick={() => onNavigate('shop')}
+              onClick={() => onNavigate(productTab)}
               className="flex shrink-0 items-center gap-2.5 text-left"
               aria-label="카피박스 홈"
             >
@@ -60,7 +66,7 @@ export default function Header({ view, onNavigate, user, onLoginClick, onLogout 
                   <button
                     key={tab.id}
                     type="button"
-                    data-testid={`tab-${tab.id}`}
+                    data-testid={`tab-${tab.testId}`}
                     aria-current={active ? 'page' : undefined}
                     onClick={() => onNavigate(tab.id)}
                     className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
@@ -121,7 +127,7 @@ export default function Header({ view, onNavigate, user, onLoginClick, onLogout 
 
               <button
                 type="button"
-                onClick={() => onNavigate('shop')}
+                onClick={() => onNavigate(productTab)}
                 className="btn-primary hidden !rounded-xl !px-4 !py-2 !text-[13px] sm:inline-flex"
               >
                 견적 내기
@@ -129,17 +135,17 @@ export default function Header({ view, onNavigate, user, onLoginClick, onLogout 
             </div>
           </div>
 
-          <nav className="flex items-center gap-1 pb-2 md:hidden" aria-label="모바일 메뉴">
+          <nav className="flex items-center gap-1 overflow-x-auto pb-2 md:hidden" aria-label="모바일 메뉴">
             {TABS.map((tab) => {
               const active = tab.id === view;
               return (
                 <button
                   key={tab.id}
                   type="button"
-                  data-testid={`mtab-${tab.id}`}
+                  data-testid={`mtab-${tab.testId}`}
                   aria-current={active ? 'page' : undefined}
                   onClick={() => onNavigate(tab.id)}
-                  className={`min-w-0 flex-1 rounded-lg px-1 py-2 text-center text-[12px] font-semibold transition ${
+                  className={`min-w-0 flex-1 whitespace-nowrap rounded-lg px-1 py-2 text-center text-[12px] font-semibold transition ${
                     active ? 'bg-white text-brand-700 shadow-card' : 'text-ink-600 hover:bg-ink-50'
                   }`}
                 >

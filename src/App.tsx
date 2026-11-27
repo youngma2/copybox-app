@@ -1,25 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Header, { type View } from './components/Header';
-import Hero from './components/Hero';
+import Header from './components/Header';
 import LoginModal from './components/LoginModal';
-import OptionsCard from './components/OptionsCard';
-import OrderSection from './components/OrderSection';
-import PriceTable from './components/PriceTable';
-import StoreInfo from './components/StoreInfo';
-import SummaryCard from './components/SummaryCard';
-import Uploader, { type UploadedFileMeta } from './components/Uploader';
+import ProductPage from './components/ProductPage';
 import HistorySection from './components/HistorySection';
 import AdminSection from './components/AdminSection';
 import NoticePopup from './components/NoticePopup';
-import { EcoBanner, EcoSection } from './components/EcoPromo';
-import FaqSection from './components/FaqSection';
-import { ReviewSummary } from './components/Reviews';
 import { PROVIDER_LABEL, type LoginProvider } from './lib/auth';
 import { won } from './lib/format';
 import { isValidPhone, type OrderFormValues } from './lib/order';
 import { DEFAULT_QUOTE_INPUT, calculateQuote, type QuoteInput } from './lib/pricing';
+import type { ProductKind } from './config/pricing';
+import { PRODUCT_PAGES } from './config/products';
 import { STORE } from './config/store';
 import type { PickupMethod } from './config/delivery';
+import { hashForView, isProductView, viewFromHash, type View } from './lib/routing';
 import {
   STORE_MODE_LABEL,
   store,
@@ -31,16 +25,17 @@ import {
   type Review,
   type StatusHistory,
 } from './lib/storage';
-import { IconArrowRight, IconShield } from './components/Icons';
+import type { UploadedFileMeta } from './components/Uploader';
+import { IconArrowRight } from './components/Icons';
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '잠시 후 다시 시도해 주세요.';
 }
 
 export default function App() {
-  const [view, setView] = useState<View>('shop');
-  const [file, setFile] = useState<UploadedFileMeta | null>(null);
+  const [view, setView] = useState<View>(() => viewFromHash(window.location.hash));
   const [options, setOptions] = useState<QuoteInput>(DEFAULT_QUOTE_INPUT);
+  const [files, setFiles] = useState<Record<ProductKind, UploadedFileMeta | null>>({ print: null, card: null });
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [receipt, setReceipt] = useState<Order | null>(null);
@@ -56,7 +51,12 @@ export default function App() {
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const [reorderSource, setReorderSource] = useState<string | null>(null);
 
-  const quote = useMemo(() => calculateQuote(options), [options]);
+  /** 지금 보고 있는 상품 (이력·관리자 화면에서는 마지막으로 보던 상품) */
+  const activeProduct: ProductKind = view === 'card' ? 'card' : view === 'print' ? 'print' : options.product;
+  const activeOptions = useMemo<QuoteInput>(() => ({ ...options, product: activeProduct }), [options, activeProduct]);
+  const quote = useMemo(() => calculateQuote(activeOptions), [activeOptions]);
+  const file = files[activeProduct];
+  const visibleReceipt = receipt && receipt.product === activeProduct ? receipt : null;
 
   const showToast = useCallback((message: string) => {
     setToast({ id: Date.now(), message });
@@ -67,6 +67,16 @@ export default function App() {
     const timer = window.setTimeout(() => setToast(null), 4800);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  // 해시 라우팅 — 새로고침·뒤로가기·링크 공유가 그대로 동작합니다.
+  useEffect(() => {
+    if (!window.location.hash) {
+      window.history.replaceState(null, '', hashForView(viewFromHash('')));
+    }
+    const onHashChange = () => setView(viewFromHash(window.location.hash));
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
   const refreshHistory = useCallback(
     async (customerId: string) => {
@@ -144,22 +154,40 @@ export default function App() {
     setOptions((current) => ({ ...current, ...patch }));
   }
 
-  function scrollTo(sectionId: string) {
+  function scrollTo(sectionId: string, delay = 80) {
     window.setTimeout(() => {
       document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 60);
+    }, delay);
   }
 
   function handleNavigate(next: View) {
     setView(next);
+    const hash = hashForView(next);
+    if (window.location.hash !== hash) window.location.hash = hash;
     window.scrollTo({ top: 0, behavior: 'auto' });
-    if (next === 'admin') void refreshAdmin();
-    if (next === 'history' && customer) void refreshHistory(customer.id);
+  }
+
+  // 탭이 바뀌면(해시 이동 포함) 그 화면의 데이터를 새로 읽습니다.
+  useEffect(() => {
+    if (view === 'admin') void refreshAdmin();
+    else if (view === 'history' && customer) void refreshHistory(customer.id);
+  }, [view, customer, refreshAdmin, refreshHistory]);
+
+  function handleProductChange(product: ProductKind) {
+    if (view === product) {
+      scrollTo('quote', 0);
+      return;
+    }
+    setReceipt(null);
+    setReorderSource(null);
+    handleNavigate(product);
+    showToast(`${PRODUCT_PAGES[product].navLabel} 페이지로 이동했어요.`);
   }
 
   function handleEcoQuote() {
-    setView('shop');
-    patchOptions({ deliverySpeed: 'eco', product: 'print' });
+    const target: ProductKind = isProductView(view) ? view : 'print';
+    if (!isProductView(view)) handleNavigate(target);
+    patchOptions({ deliverySpeed: 'eco' });
     setReceipt(null);
     showToast('🌿 여유 제작 특가를 선택했어요. 인쇄비 10%가 자동 할인됩니다.');
     scrollTo('quote');
@@ -213,7 +241,7 @@ export default function App() {
       customerId: owner.id,
       quote,
       customerRequest: values.notes,
-      pickup: options.pickup,
+      pickup: activeOptions.pickup,
       address: values.address,
       file: file ? { name: file.name, size: file.size, pages: file.pages } : null,
       paymentMethod: values.paymentMethod,
@@ -227,12 +255,10 @@ export default function App() {
 
   function handleReset() {
     setReceipt(null);
-    setFile(null);
+    setFileForProduct(activeProduct, null);
     setOptions(DEFAULT_QUOTE_INPUT);
     setReorderSource(null);
-    window.setTimeout(() => {
-      document.getElementById('quote')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 40);
+    scrollTo('quote', 40);
   }
 
   function handleReorder(order: Order) {
@@ -250,12 +276,16 @@ export default function App() {
       pickup: order.pickup,
       deliverySpeed: order.deliverySpeed,
     });
-    setFile(null);
+    setFileForProduct(order.product, null);
     setReceipt(null);
     setReorderSource(order.orderNumber);
-    setView('shop');
+    handleNavigate(order.product);
     showToast(`${order.orderNumber} 옵션을 그대로 불러왔어요. 파일만 다시 올려 주세요.`);
-    scrollTo('quote');
+    scrollTo('quote', 140);
+  }
+
+  function setFileForProduct(product: ProductKind, next: UploadedFileMeta | null) {
+    setFiles((current) => ({ ...current, [product]: next }));
   }
 
   async function handleStatusChange(orderId: string, status: OrderStatus) {
@@ -371,9 +401,13 @@ export default function App() {
   }
 
   const showQuoteBar =
-    view === 'shop' &&
-    !receipt &&
-    (file !== null || options.pages > 1 || options.copies > 1 || options.binding !== 'none' || options.product === 'card');
+    isProductView(view) &&
+    !visibleReceipt &&
+    (file !== null ||
+      options.pages > 1 ||
+      options.copies > 1 ||
+      options.binding !== 'none' ||
+      activeProduct === 'card');
 
   return (
     <div className="flex min-h-screen w-full max-w-full flex-col overflow-x-hidden bg-paper">
@@ -386,91 +420,33 @@ export default function App() {
       />
 
       <main className="min-w-0 flex-1">
-        {view === 'shop' && (
-          <>
-            <Hero />
-            <EcoBanner onEcoQuote={handleEcoQuote} />
-
-            <section id="quote" className="container-page pt-12 sm:pt-16">
-              <div className="flex flex-wrap items-end justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs font-bold tracking-[0.18em] text-brand-600">QUOTE</p>
-                  <h2 className="mt-2 text-[26px] font-extrabold tracking-tight text-ink-900 sm:text-[32px]">
-                    실시간 견적 계산기
-                  </h2>
-                  <p className="mt-2 text-sm leading-relaxed text-ink-600">
-                    A4 출력·제본부터 명함까지 · 파일을 올리고 옵션만 고르면 금액이 바로 계산돼요. 로그인은 필요 없습니다.
-                  </p>
-                </div>
-                <p className="flex items-center gap-1.5 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-ink-600">
-                  <IconShield className="h-3.5 w-3.5 text-mint" />
-                  파일은 브라우저에서만 확인
-                </p>
-              </div>
-
-              {reorderSource && (
-                <div
-                  data-testid="reorder-hint"
-                  className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3.5 py-2.5"
-                >
-                  <p className="min-w-0 break-words text-[12px] font-semibold text-brand-800">
-                    접수번호 <span className="num">{reorderSource}</span>의 옵션을 불러왔어요. 파일만 다시 올려 주세요.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setReorderSource(null)}
-                    className="rounded-lg bg-white px-2.5 py-1 text-[11px] font-bold text-brand-700 shadow-card"
-                  >
-                    닫기
-                  </button>
-                </div>
-              )}
-
-              <div className="mt-6 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_356px]">
-                <div className="min-w-0 space-y-4">
-                  <Uploader
-                    file={file}
-                    pages={options.pages}
-                    onFileChange={setFile}
-                    onPagesChange={(pages) => patchOptions({ pages })}
-                  />
-                  <OptionsCard
-                    value={options}
-                    pagesAuto={Boolean(file?.autoDetected)}
-                    fileName={file?.name ?? null}
-                    onChange={patchOptions}
-                  />
-                </div>
-                <div className="min-w-0">
-                  <SummaryCard quote={quote} file={file} onOrder={() => scrollTo('order')} onChangePickup={handlePickupChange} />
-                </div>
-              </div>
-            </section>
-
-            <PriceTable />
-
-            <EcoSection onEcoQuote={handleEcoQuote} />
-
-            <StoreInfo onSampleAction={showToast} />
-
-            <ReviewSummary reviews={publicReviews} />
-
-            <FaqSection onKakao={handleKakao} />
-
-            <OrderSection
-              quote={quote}
-              file={file}
-              customer={customer}
-              receipt={receipt}
-              storeMode={storeMode}
-              pickup={options.pickup}
-              onPickupChange={handlePickupChange}
-              onLoginClick={() => setLoginOpen(true)}
-              onSubmit={handleOrder}
-              onReset={handleReset}
-              onViewHistory={() => handleNavigate('history')}
-            />
-          </>
+        {isProductView(view) && (
+          <ProductPage
+            key={view}
+            product={view}
+            options={activeOptions}
+            quote={quote}
+            file={file}
+            pagesAuto={Boolean(file?.autoDetected)}
+            customer={customer}
+            receipt={visibleReceipt}
+            storeMode={storeMode}
+            reorderSource={reorderSource}
+            reviews={publicReviews}
+            onFileChange={(next) => setFileForProduct(view, next)}
+            onPagesChange={(pages) => patchOptions({ pages })}
+            onOptionsChange={patchOptions}
+            onProductChange={handleProductChange}
+            onPickupChange={handlePickupChange}
+            onLoginClick={() => setLoginOpen(true)}
+            onSubmit={handleOrder}
+            onReset={handleReset}
+            onViewHistory={() => handleNavigate('history')}
+            onEcoQuote={handleEcoQuote}
+            onKakao={handleKakao}
+            onSampleAction={showToast}
+            onDismissReorder={() => setReorderSource(null)}
+          />
         )}
 
         {view === 'history' && (
@@ -483,7 +459,7 @@ export default function App() {
             onLoginClick={() => setLoginOpen(true)}
             onLogout={() => void handleLogout()}
             onReorder={handleReorder}
-            onNewOrder={() => handleNavigate('shop')}
+            onNewOrder={() => handleNavigate('print')}
             onDeleteAccount={handleDeleteAccount}
             onSaveReview={handleSaveReview}
             onNotice={showToast}
@@ -535,16 +511,16 @@ export default function App() {
 
             <div className="grid grid-cols-2 gap-8 text-[12px] sm:gap-14">
               <div>
-                <p className="font-bold text-white/80">바로가기</p>
+                <p className="font-bold text-white/80">상품</p>
                 <ul className="mt-2.5 space-y-1.5 text-white/50">
                   <li>
-                    <button type="button" onClick={() => handleNavigate('shop')} className="transition hover:text-white">
-                      견적 계산기
+                    <button type="button" onClick={() => handleNavigate('print')} className="transition hover:text-white">
+                      {PRODUCT_PAGES.print.navLabel}
                     </button>
                   </li>
                   <li>
-                    <button type="button" onClick={() => handleNavigate('shop')} className="transition hover:text-white">
-                      단가표
+                    <button type="button" onClick={() => handleNavigate('card')} className="transition hover:text-white">
+                      {PRODUCT_PAGES.card.navLabel}
                     </button>
                   </li>
                   <li>
@@ -589,13 +565,13 @@ export default function App() {
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="truncate text-[10px] font-medium text-ink-400">
-                {options.product === 'card'
+                {activeProduct === 'card'
                   ? `총 예상 금액 · 명함 ${quote.cardQty}매`
                   : `총 예상 금액 · ${quote.pages}페이지 × ${quote.copies}부`}
               </p>
               <p className="num text-[19px] font-extrabold leading-tight text-ink-900">{won(quote.total)}</p>
             </div>
-            <button type="button" onClick={() => scrollTo('order')} className="btn-primary shrink-0 !px-4 !py-3 !text-[13px]">
+            <button type="button" onClick={() => scrollTo('order', 0)} className="btn-primary shrink-0 !px-4 !py-3 !text-[13px]">
               주문 접수
               <IconArrowRight className="h-4 w-4" />
             </button>

@@ -11,7 +11,8 @@ PDF를 끌어다 놓으면 브라우저 안에서 페이지 수를 세고, 옵�
 
 | 항목 | 내용 |
 | --- | --- |
-| 코드 3단 분리 | `src/config/`(단가·제본·택배비·주문상태·명함) · `src/lib/storage/`(저장소 어댑터) · `src/components/`(화면) |
+| **상품별 탭·페이지** | 상단 탭이 **A4 출력·제본 / 명함 / 내 주문 이력 / 관리자** 4개. 상품마다 전용 페이지(`#/a4`, `#/card`)에 소개·옵션·단가표·주문 흐름이 따로 있습니다 |
+| 코드 3단 분리 | `src/config/`(단가·제본·택배비·주문상태·명함·상품 페이지) · `src/lib/storage/`(저장소 어댑터) · `src/components/`(화면) |
 | 주문 상태 | **접수됨 → 인쇄중 → 완료 → 출고 → 배송 완료** (5단계) |
 | 결제 후 노출 | 주문은 결제(입금 신청)를 마친 시점에만 생성 → 사장님 목록에는 결제 완료 건만. 미결제·작성 중 이탈 건은 저장조차 되지 않음 |
 | 입금 확인 | 주문별 `입금 대기 / 입금 확인 완료` + 확인 시각 저장 (`payment_confirmed_at`) |
@@ -43,7 +44,8 @@ npm run preview    # 빌드 미리보기 (127.0.0.1:4175/copybox-app/)
 
 ```bash
 export LD_LIBRARY_PATH=/workspace/.tools/chrome/lib
-python3 scripts/verify_copybox_v3.py http://127.0.0.1:4175/copybox-app/
+python3 scripts/verify_product_tabs.py            # 상품 탭·페이지 분리 90개 (dist 를 직접 서빙)
+python3 scripts/verify_copybox_v3.py http://127.0.0.1:4175/copybox-app/   # 기존 v3 기능 72개
 ```
 
 ## 구조 (3단 분리)
@@ -52,6 +54,7 @@ python3 scripts/verify_copybox_v3.py http://127.0.0.1:4175/copybox-app/
 copybox-app/
   src/
     config/                  # ── 설정·규칙층 (가격/메뉴는 여기만 고치면 됩니다)
+      products.ts            #   상품 페이지 문구·탭 이름·해시 라우트 (새 상품 추가 지점)
       pricing.ts             #   A4 50/40 · 컬러 300/250 · 제본 3종 · 한도
       delivery.ts            #   택배 4,000 + 포장 1,000 · 여유특가 10% · 영업일 계산 · 14일 파기
       status.ts              #   주문 상태 5단계 · 입금 상태 · 결제 수단
@@ -65,9 +68,11 @@ copybox-app/
         demo.ts              #   localStorage 시안 모드 (v2 → v3 자동 마이그레이션)
         supabase.ts          #   Supabase REST (R2 경로만 저장)
         index.ts             #   VITE_SUPABASE_* 유무로 demo ↔ supabase 선택
-      order.ts / describe.ts / image.ts / auth.ts / format.ts
+      order.ts / describe.ts / image.ts / auth.ts / format.ts / routing.ts
     components/              # ── 화면층
-      Header / Hero / Uploader / OptionsCard / SummaryCard / PriceTable
+      ProductPage            #   상품 전용 페이지 조립(소개→견적→단가표→안내→주문)
+      ProductHero            #   상품별 히어로(소개 문구·가격 요약·3단계 안내·예시 목업)
+      Header / Uploader / OptionsCard / SummaryCard / PriceTable
       EcoPromo               #   여유특가 배너 + 전용 안내 탭
       NoticePopup            #   공지 팝업(오늘 하루 보지 않기)
       OrderSection           #   주문 폼 → 결제 확인 → 접수증
@@ -79,10 +84,19 @@ copybox-app/
       admin/AdminCustomers   #   고객 DB + 전체 이력
       admin/AdminDashboard   #   매출·주문 대시보드
       PickupPhotos / OrderMessages / StatusBadge
-    App.tsx                  # 화면 전환·손님 세션·관리자 데이터
+    App.tsx                  # 해시 라우팅·상품 전환·손님 세션·관리자 데이터
   supabase/schema.sql        # 카피박스 전용 스키마 v3 (공부 체크 앱과 완전 분리)
-  scripts/verify_copybox_v3.py   # Playwright 검증 72개
+  scripts/verify_product_tabs.py # 상품 탭·페이지 검증 90개
+  scripts/verify_copybox_v3.py   # 기능 검증 72개
 ```
+
+## 상품 페이지 추가하는 법
+
+1. `src/config/pricing.ts` 의 `ProductKind` 에 새 상품 id 추가
+2. `src/config/products.ts` 의 `PRODUCT_PAGES` 에 탭 이름·소개 문구·3단계 안내·`route`(`#/poster` 등) 추가
+3. `src/components/ProductPage.tsx` 에서 그 상품의 옵션·단가표를 연결
+
+탭·해시 라우트·헤더·푸터가 `PRODUCT_ORDER` 를 따라 자동으로 늘어납니다.
 
 ## 저장소 전환 (시안 ↔ 운영)
 

@@ -43,7 +43,7 @@ export default function SummaryCard({ quote, file, onOrder, onChangePickup }: Su
                   {file.name}
                 </p>
                 <p className="text-[10px] text-ink-400">
-                  {file.autoDetected ? `${file.pages}페이지 자동 인식` : '페이지 수 직접 입력'}
+                  {file.autoDetected ? `${file.pages}페이지 자동 인식` : isCard ? '디자인 파일 접수' : '페이지 수 직접 입력'}
                 </p>
               </div>
             ) : (

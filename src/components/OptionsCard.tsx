@@ -18,6 +18,7 @@ import {
   unitPagePrice,
   type BindingId,
   type ColorMode,
+  type ProductKind,
   type QuoteInput,
   type Sides,
 } from '../lib/pricing';
@@ -39,6 +40,8 @@ interface OptionsCardProps {
   pagesAuto: boolean;
   fileName: string | null;
   onChange: (patch: Partial<QuoteInput>) => void;
+  /** 다른 상품 탭으로 이동 (상품마다 전용 페이지) */
+  onProductChange: (product: ProductKind) => void;
 }
 
 interface SegmentedOption<T extends string> {
@@ -174,7 +177,7 @@ function Stepper({
   );
 }
 
-export default function OptionsCard({ value, pagesAuto, fileName, onChange }: OptionsCardProps) {
+export default function OptionsCard({ value, pagesAuto, fileName, onChange, onProductChange }: OptionsCardProps) {
   const isCard = value.product === 'card';
   const colorOptions: SegmentedOption<ColorMode>[] = (['mono', 'color'] as ColorMode[]).map((color) => ({
     value: color,
@@ -207,9 +210,9 @@ export default function OptionsCard({ value, pagesAuto, fileName, onChange }: Op
       <div className="space-y-5 px-4 py-5 sm:px-5 md:px-6 md:py-6">
         {/* 상품 종류 */}
         <div>
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-[13px] font-bold text-ink-800">무엇을 만들까요?</span>
-            <span className="text-[10px] font-medium text-ink-400">A4 출력 · 제본 / 명함</span>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="text-[13px] font-bold text-ink-800">상품</span>
+            <span className="text-[10px] font-medium text-ink-400">상품마다 전용 페이지가 있어요</span>
           </div>
           <div className="grid grid-cols-2 gap-2">
             {(['print', 'card'] as const).map((product) => {
@@ -219,8 +222,9 @@ export default function OptionsCard({ value, pagesAuto, fileName, onChange }: Op
                   key={product}
                   type="button"
                   aria-pressed={selected}
+                  aria-current={selected ? 'page' : undefined}
                   data-testid={`product-${product}`}
-                  onClick={() => onChange({ product })}
+                  onClick={() => onProductChange(product)}
                   className={`min-w-0 rounded-xl border px-2 py-3 text-center transition ${
                     selected
                       ? 'border-brand-600 bg-brand-50 text-brand-700 ring-1 ring-brand-600'
@@ -235,6 +239,7 @@ export default function OptionsCard({ value, pagesAuto, fileName, onChange }: Op
               );
             })}
           </div>
+          <p className="mt-1.5 text-[10px] text-ink-400">다른 상품을 누르면 그 상품 페이지로 이동합니다.</p>
         </div>
 
         <div className="h-px bg-ink-100" />
